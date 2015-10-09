@@ -1,0 +1,23 @@
+
+EXECS=c_dicod
+MPICC?=mpic++
+STD11=-std=c++11
+FFTW=`pkg-config --libs --cflags fftw3`
+OPTIONFLAGS=${STD11}
+
+all: ${EXECS} clean_bld
+
+c_dicod: c_dicod.cpp dicod.o MPI_op.o
+	${MPICC} ${OPTIONFLAGS} -o c_dicod c_dicod.cpp dicod.o MPI_op.o ${FFTW}
+
+dicod.o: dicod.cpp dicod.h  MPI_op.o
+	${MPICC} ${OPTIONFLAGS} -c -o dicod.o dicod.cpp
+
+MPI_op.o: MPI_operations.cpp MPI_operations.h
+	${MPICC} -c -o MPI_op.o MPI_operations.cpp
+
+clean: clean_bld
+	rm ${EXECS} *.o
+
+clean_bld:
+	rm *.o
