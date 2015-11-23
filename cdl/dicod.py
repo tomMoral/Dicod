@@ -92,6 +92,7 @@ class DICOD(_GradientDescent):
         pb.compute_DD()
         alpha_k = np.sum(np.mean(pb.D*pb.D, axis=1), axis=1)
         alpha_k += (alpha_k == 0)
+        self.t_init = time() - self.t_start
 
         self._broadcast_array(alpha_k)
         self._broadcast_array(pb.DD)
@@ -114,14 +115,14 @@ class DICOD(_GradientDescent):
             self.comm.Send([sig[:, i*L_proc:end].flatten(),
                             MPI.DOUBLE], i, tag=100+i)
             expect += [sig[0, i*L_proc], sig[-1, end-1]]
+        self.t_start = time()
         self._confirm_array(expect)
         self.L, self.L_proc = L, L_proc
 
         # Wait end of initialisation
         self.comm.Barrier()
         self.t_init = time() - self.t_start
-        self.t1 = time()
-        log.info('End initialisation - {:.4}s'.format(self.t_init))
+        log.debug('End initialisation - {:.4}s'.format(self.t_init))
 
     def end(self):
 
@@ -152,6 +153,7 @@ class DICOD(_GradientDescent):
         cost = np.empty(self.n_jobs, 'd')
         iterations = np.empty(self.n_jobs, 'i')
         times = np.empty(self.n_jobs, 'd')
+        init_times = np.empty(self.n_jobs, 'd')
         self.comm.Gather(None, [cost, MPI.DOUBLE],
                          root=MPI.ROOT)
         self.comm.Gather(None, [iterations, MPI.INT],
@@ -168,16 +170,19 @@ class DICOD(_GradientDescent):
         log.debug("Times", times)
         t_end = time()
         self.pb.pt = pt
+        self.pt_dbg = np.copy(pt)
         log.info('End for {}'.format(self),
                  'iteration {}, time {:.4}s'.format(self.iteration, self.t))
-        log.info('Total time: {:.4}s'.format(time()-self.t_start))
-        log.info('Total time: {:.4}s'.format(self.runtime))
-        self.runtime2 = time() - self.t_start
+        log.debug('Total time: {:.4}s'.format(time()-self.t_start))
+        log.debug('Total time: {:.4}s'.format(self.runtime))
+        self.runtime += self.t_init
 
         if self.logging:
             self._log(iterations, t_end)
 
         self.comm.Barrier()
+        log.info("Conv sparse coding end in {:.4}s for {} iterations"
+                 "".format(self.runtime, self.iteration))
 
     def _log(self, iterations, t_end):
         self.comm.Barrier()
@@ -193,7 +198,8 @@ class DICOD(_GradientDescent):
         i0 = np.argsort(updates_t)
         next_log = 1
         pb.reset()
-        t = np.min(updates_t)
+        log.debug('Start logging cost')
+        t = self.t_init
         for it, i in enumerate(i0):
             if it+1 >= next_log:
                 log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
@@ -205,8 +211,9 @@ class DICOD(_GradientDescent):
             pb.pt[j//L, j%L] += du
         log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
                     iteration=it, fun=pb.cost,
-                    graph_cost=self.graph_cost, time=t_end-self.t_start)
+                    graph_cost=self.graph_cost, time=self.runtime+self.t_init)
         self.log_update = (updates_t, updates)
+        log.debug('End logging cost')
 
     def gather_AB(self):
         K, S, d = self.K, self.S, self.d
