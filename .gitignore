@@ -1,5 +1,14 @@
 __pycache__
 *csv
+*npy
+*pkl
+*pdf
+
+# Project config
+*sublime*
 
 # Binaries
-c_dicod
+cdl/c_dicod/c_dicod
+
+# Config files
+hostfile

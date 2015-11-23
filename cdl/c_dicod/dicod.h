@@ -39,22 +39,29 @@ class DICOD
 	private:
 		//Private Attributes
 		Intercomm *parentComm;
-		double *sig, *beta, *pt;
+
+		double *sig, *beta, *pt; // Signal, beta
 		double *alpha_k, *DD, *D;
 		bool *end_neigh, first_probe;
 		double lmbd, tol, t_max;
-		int L_proc, L_proc_S, iter;
+		int L_proc, L_proc_S, off, iter;
 		int T, dim, S, K, L, i_max;
-		int world_size, world_rank, plen;
+		int world_size, world_rank;
 		double next_probe, up_probe, runtime, t_init;
 		chrono::high_resolution_clock::time_point t_start;
-		bool pause, go, debug, logging;
+		bool pause, go, debug, logging, positive;
 		list<double*> messages;
 		unordered_map<int, int> probe_result;
 		list<int> probe_try;
 		list<double> log_dz, log_t, log_i0;
 
+		// Segment routine variables
+		int use_seg, seg_size;
+		int current_seg, n_seg, n_zero;
+		double seg_dz;
+
     	//Private Methods
+    	double _return_dz(double dz);
 		double compute_cost();
 		void _init_algo();
 		void _update_beta(double dz, int k, int t);

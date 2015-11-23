@@ -19,10 +19,13 @@ using namespace FFTW_Convolution;
 #define PROBE_UP_START 0.05		// Smallest time between probe for end
 #define PROBE_MAX 0.4			// Largest time between probes
 
-#define DEBUG true
+#define DEBUG false
 
 //Object handeling the computation
 DICOD::DICOD(Intercomm* _parentComm){
+	// Init time measurement for initialization
+	t_start = chrono::high_resolution_clock::now();
+
 	parentComm = _parentComm;
 
 	// Initiate arrays
@@ -36,9 +39,12 @@ DICOD::DICOD(Intercomm* _parentComm){
 	if(DEBUG){
 		// Get the machine this process is running on
 		char* procName = new char[MAX_PROCESSOR_NAME];
+		int plen;
 		Get_processor_name(procName, plen);
 		cout << "Start processor " << world_rank << "/" << world_size
-			 << " on " << procName << endl;
+			 << " on " << procName << endl
+			 << "    and with COMM_WORLD " << COMM_WORLD.Get_rank() << "/" 
+			 << COMM_WORLD.Get_size() << endl;
 		delete[] procName;
 	}
 
@@ -98,9 +104,17 @@ void DICOD::_init_algo(){
 	log_i0.clear();
 	log_t.clear();
 
+	// Init the segment choosing and stoping
+	current_seg = 0;
+	seg_dz = 0.;
+	n_seg = use_seg;
+	seg_size = ceil(L_proc / use_seg);
+	n_zero = 0;
+
 	end_neigh = new bool[2];
 	end_neigh[0] = (world_rank == 0);
 	end_neigh[1] = (world_rank == world_size-1);
+
 }
 double DICOD::step(){
 	if(pause)
@@ -116,12 +130,26 @@ double DICOD::step(){
 	}
 	probe_try.clear();
 	//Find argmax of |z_i - z'_i|
+	int seg_start = 0;
+	int seg_end = L_proc;
+	if(use_seg > 1){
+		seg_start = current_seg*seg_size;
+		seg_end = (current_seg+1)*seg_size;
+		current_seg += 1;
+		if(seg_end > L_proc){
+			current_seg = 0;
+
+		}
+		seg_end = min(seg_end, L_proc);
+	}
 	for(k = 0; k < K; k++){
 		ak = alpha_k[k];
-		for (t=0; t < L_proc; t++){
+		for (t=seg_start; t < seg_end; t++){
 			i = k*L_proc+t;
 			beta_i = -beta[i];
 			sign_beta_i = (beta_i >= 0)?1:-1;
+			if(positive)
+				sign_beta_i = (beta_i >= 0)?1:0;
 			beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
 			if(adz < fabs(beta_i-pt[i])){
 				k0 = k;
@@ -133,13 +161,16 @@ double DICOD::step(){
 	}
 	// If there is no update
 	// it will go to pause in end
-	if(t0 == -1)
-		return 0;
+	if(t0 == -1){
+		n_zero += 1;
+		return _return_dz(0.);;
+	}
+	n_zero = 0;
 
 	// Else update the point
 	pt[k0*L_proc+t0] -= dz;
 	if(logging){
-		int off = world_rank*L_proc;
+		//int off = world_rank*L_proc;
 		chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
 		chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
 	  	double seconds = time_span.count();
@@ -150,8 +181,25 @@ double DICOD::step(){
 	}
 	_update_beta(dz, k0, t0);
 	iter += 1;
+
+	return _return_dz(dz);
+}
+
+double DICOD::_return_dz(double dz){
+
+	if(use_seg > 1){
+		int k;
+		list<double>::reverse_iterator rit;
+
+		for(rit = log_dz.rbegin(), k = 0;
+			rit != log_dz.rend() && k != 2*n_seg-n_zero;
+			rit++, k++)
+			if(fabs(*rit) > fabs(dz))
+				dz = *rit;
+	}
 	return dz;
 }
+
 bool DICOD::stop(double dz){
 	chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
 	chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
@@ -167,6 +215,8 @@ bool DICOD::stop(double dz){
 	}
 	if(debug && seconds >= t_max && world_rank == 0)
 		cout << "DEBUG - Pool - Reach timeout" << endl;
+	if(debug && iter >= i_max && world_rank == 0)
+		cout << "DEBUG - Pool - Reach max iteration" << endl;
 	if(fabs(dz) <= tol){
 		// If just enter pause, probe other for paused
 		if(world_rank == 0){
@@ -193,8 +243,11 @@ bool DICOD::stop(double dz){
 			runtime = seconds;
 		}
 	}
-	if(_stop)
+	if(_stop){
+		if(runtime == 0)
+			runtime = seconds;
 		COMM_WORLD.Barrier();
+	}
 	return _stop;
 }
 void DICOD::_update_beta(double dz, int k0, int t0){
@@ -229,10 +282,11 @@ void DICOD::reduce_pt(){
 	parentComm->Gather(&cost, 1, DOUBLE, NULL, 0, DOUBLE, 0);
 	parentComm->Gather(&iter, 1, INT, NULL, 0, DOUBLE, 0);
 	parentComm->Gather(&runtime, 1, DOUBLE, NULL, 0, DOUBLE, 0);
+	parentComm->Gather(&t_init, 1, DOUBLE, NULL, 0, DOUBLE, 0);
 
 	if (logging){
 		parentComm->Barrier();
-		double* _log = new double[iter*3];
+		double* _log = new double[3*iter];
 		list<double>::iterator itz, itt, iti;
 		int i = 0;
 		for(itz=log_dz.begin(), itt=log_t.begin(), iti=log_i0.begin();
@@ -376,6 +430,7 @@ void DICOD::process_queue(){
 					}
 				}
 				pause = false;
+				runtime = 0;
 				break;
 		}
 		delete[] msg;
@@ -437,22 +492,32 @@ void DICOD::send_update(double dz, int ll, int off, int k0){
 	msg[4] = (double) k0;
 	msg[5] = (double) start_DD;
 	msg[6] = dz;
-	COMM_WORLD.Isend(msg, HEADER, DOUBLE,
-					 world_rank+(1-2*src), 34+(1-2*src));
-	messages.push_back(msg);
+	int dest = world_rank+(1-2*src);
+	if(dest > -1 || dest < world_size){
+		COMM_WORLD.Isend(msg, HEADER, DOUBLE,
+						 dest, 34+(1-2*src));
+		messages.push_back(msg);
+	}
+	else{
+		cout << "ERROR - Pool - tried to send a message to" << dest << endl;
+	}
 }
 void DICOD::send_msg(int msg_type, int arg, bool up){
 	int sz = 2;
 	double* msg = new double[sz];
 	msg[0] = (double) msg_type;
 	msg[1] = (double) arg;
-	COMM_WORLD.Isend(msg, sz, DOUBLE,
-					 world_rank+(2*up-1), 34+(2*up-1));
-	messages.push_back(msg);
+	int dest = world_rank+(2*up-1);
+	if(dest > -1 || dest < world_size){
+		COMM_WORLD.Isend(msg, sz, DOUBLE,
+						 dest, 34+(2*up-1));
+		messages.push_back(msg);
+	}
+	else{
+		cout << "ERROR - Pool - tried to send a message to" << dest << endl;
+	}
 }
 void DICOD::receive_task(){
-	// Init time measurement for computation
-	t_start = chrono::high_resolution_clock::now();
 
 	// Update dictionary constants
 	delete[] alpha_k;
@@ -464,21 +529,23 @@ void DICOD::receive_task(){
 
 	//Receives some constant of the algorithm
 	double* constants = receive_bcast(parentComm);
-	dim = (int) constants[0];			// Dimension of the signal
-	K = (int) constants[1];				// Number of dictionary elements
-	S = (int) constants[2];  			// Size of the dicitonary
-	T = (int) constants[3];				// Size of the signal
-	lmbd = constants[4];				// Regularisation parameter
-	tol = constants[5];					// Convergence tolerance
-	t_max = constants[6];				// Maximum time
-	i_max = (int) constants[7];			// # iterations maximum
-	debug = ((int) constants[8] > 0);	// Debug level
-	logging = ((int) constants[9] == 1);// Activate the logging
+	dim = (int) constants[0];				// Dimension of the signal
+	K = (int) constants[1];					// Number of dictionary elements
+	S = (int) constants[2];  				// Size of the dicitonary
+	T = (int) constants[3];					// Size of the signal
+	lmbd = constants[4];					// Regularisation parameter
+	tol = constants[5];						// Convergence tolerance
+	t_max = constants[6];					// Maximum time
+	i_max = (int) constants[7];				// # iterations maximum
+	debug = ((int) constants[8] > 0);		// Debug level
+	logging = ((int) constants[9] == 1);	// Activate the logging
+	use_seg = ((int) constants[10]);		// Use a semgneted update
+	positive = ((int) constants[11] == 1);	// Use a semgneted update
 	delete[] constants;
 
 	L = T-S+1;   // Size of the code
 	L_proc = L / world_size + 1;
-	int off = world_rank*L_proc;
+	off = world_rank*L_proc;
 	L_proc = min(off+L_proc, L)-off;
 	L_proc_S = L_proc+S-1;
 
@@ -495,4 +562,5 @@ void DICOD::receive_task(){
 	chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
 	chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
   	t_init = time_span.count();
+	t_start = chrono::high_resolution_clock::now();
 }

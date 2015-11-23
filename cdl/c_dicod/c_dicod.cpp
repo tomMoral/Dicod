@@ -21,18 +21,16 @@ int main(int argc, char**argv) {
 
 	// Get the communicator and the Process API
 	Intercomm parentComm = Comm::Get_parent();
-	double dz = 100;
-	dz = 100.;
-	DICOD *pc = new DICOD(&parentComm);
-	while(!pc->stop(dz)){
-		dz = pc->step();
-	}
+	double dz = 100.;
+	DICOD *dcp = new DICOD(&parentComm);
+	while(!dcp->stop(dz))
+		dz = dcp->step();
 
 	// Send back
-	pc->reduce_pt();
-	pc->end();
-    bool debug = pc->get_dbg();
-    int rank = pc->get_rank();
-	free(pc);
+	dcp->reduce_pt();
+	dcp->end();
+    bool debug = dcp->get_dbg();
+    int rank = dcp->get_rank();
+	free(dcp);
     return clean_up(&parentComm, debug, rank);
 }
