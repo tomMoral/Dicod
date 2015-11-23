@@ -1,6 +1,6 @@
 import numpy as np
 
-from utils.optim.problem import _Problem
+from toolbox.optim.problem import _Problem
 
 
 class MultivariateConvolutionalCodingProblem(_Problem):
@@ -37,19 +37,22 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         self.nonneg = False
         self.d = self.x.shape[0]
 
-    def compute_DD(self):
-        self.DD = np.mean([[[np.convolve(dk, dk1)
-                             for dk, dk1 in zip(d, d1)]
-                            for d1 in self.D]
-                           for d in self.D[:, :, ::-1]], axis=2)
+    def compute_DD(self, DD=None):
+        self.DD = DD
+        if self.DD is None:
+            self.DD = np.mean([[[np.convolve(dk, dk1)
+                                 for dk, dk1 in zip(d, d1)]
+                                for d1 in self.D]
+                               for d in self.D[:, :, ::-1]], axis=2)
         self.L = np.sqrt(np.sum(self.DD*self.DD, axis=0).sum(axis=0)).sum()
+        return self.DD
 
     def update_D(self, dD, D=None, DD=None):
         if D is None:
             D = self.D
             if dD is not None:
                 D = D + dD
-            D /= np.sqrt(np.sum(D*D, axis=2))[:, :, np.newaxis]
+            #D /= np.sqrt(np.sum(D*D, axis=2))[:, :, np.newaxis]
         self.D = D
         self.L = np.sqrt(np.mean(self.D*self.D))
         if DD is None:
@@ -99,7 +102,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         residual = self.reconstruct(pt) - self.x
         self._grad_D = [[np.convolve(z, rk, mode='valid')
                          for rk in residual]
-                        for z in pt]
+                        for z in pt[:, ::-1]]
         self._grad_D = np.array(self._grad_D)
         return self._grad_D
 

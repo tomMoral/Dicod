@@ -1,8 +1,8 @@
 import numpy as np
 
 
-from utils.optim.paralel_solver import ParalelSolver
-from utils.logger import Logger
+from toolbox.optim.paralel_solver import ParalelSolver
+from toolbox.logger import Logger
 log = Logger('ConvolutionalDicitonaryLearning', 10)
 
 from .convolutionalPursuit import ConvolutionalPursuit
