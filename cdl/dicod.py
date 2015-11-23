@@ -2,10 +2,10 @@
 from mpi4py import MPI
 import numpy as np
 from time import time
-from utils.optim import _GradientDescent
+from toolbox.optim import _GradientDescent
 from os import path
 
-from utils.logger import Logger
+from toolbox.logger import Logger
 log = Logger('MPI_DCP')
 
 
@@ -14,13 +14,19 @@ class DICOD(_GradientDescent):
 
     Parameters
     ----------
-    pb: utils.optim._Problem
+    pb: toolbox.optim._Problem
         convolutional coding problem
     n_jobs: int, optional (default: 1)
         Maximal number of process to solve this problem
+    use_seg: int, optional (default: 1)
+        If >1, further segment the updates and update
+        the best coordinate over each semgnet cyclically
     hostfile: str, optional (default: None)
         Specify a hostfile for mpi launch, permit to use
         more than one computer
+    logging: bool, optional (default: False)
+        Enable the logging of the updates to allow printing a
+        cost curve
     debug: int, optional (default: 0)
         verbosity level
 
@@ -32,19 +38,25 @@ class DICOD(_GradientDescent):
 
     """
 
-    def __init__(self, pb, n_jobs=1, hostfile=None,
-                 debug=0, dl=False, logging=False, **kwargs):
-        if debug:
-            log.set_level(10)
-            debug -= 1
+    def __init__(self, pb, n_jobs=1, use_seg=1, hostfile=None,
+                 logging=False, debug=0, positive=False, **kwargs):
+        log.set_level(max(3-debug, 1)*10)
+        debug = max(debug-1, 0)
         super(DICOD, self).__init__(pb, debug=debug, **kwargs)
         self.debug = debug
         self.n_jobs = n_jobs
         self.hostfile = hostfile
         self.logging = 1 if logging else 0
-        self.dl = dl
+        self.use_seg = use_seg
+        self.positive = 1 if positive else 0
         if self.name == '_GD'+str(self.id):
             self.name = 'MPI_DCP' + str(self.n_jobs) + '_' + str(self.id)
+        print('Logger', log.level)
+
+    def fit(self, pb):
+        self.pb = pb
+        self._init_pool()
+        self.end()
 
     def _init_pool(self):
         '''Launch n_jobs process to compute the convolutional
@@ -89,7 +101,8 @@ class DICOD(_GradientDescent):
         N = np.array([float(d), float(K), float(S), float(T),
                       self.pb.lmbd, self.tol, float(self.t_max),
                       self.i_max/self.n_jobs, float(self.debug),
-                      float(self.logging)], 'd')
+                      float(self.logging), float(self.use_seg),
+                      float(self.positive)], 'd')
         self._broadcast_array(N)
 
         # Share the work between the processes
@@ -113,8 +126,7 @@ class DICOD(_GradientDescent):
     def end(self):
 
         #reduce_pt
-        if not self.dl:
-            self._gather()
+        self._gather()
 
         log.debug("DICOD - Clean end")
         self.comm.Barrier()
@@ -146,6 +158,9 @@ class DICOD(_GradientDescent):
                          root=MPI.ROOT)
         self.comm.Gather(None, [times, MPI.DOUBLE],
                          root=MPI.ROOT)
+        self.comm.Gather(None, [init_times, MPI.DOUBLE],
+                         root=MPI.ROOT)
+        self.t_init += max(init_times)
         self.cost = np.sum(cost)
         self.iteration = np.sum(iterations)
         self.runtime = times.max()
@@ -166,17 +181,16 @@ class DICOD(_GradientDescent):
 
     def _log(self, iterations, t_end):
         self.comm.Barrier()
-        L = self.L
+        pb, L = self.pb, self.L
         updates = []
         updates_t = []
         for i, it in enumerate(iterations):
             _log = np.empty(3*it)
             self.comm.Recv([_log, MPI.DOUBLE], i, tag=300+i)
-            updates += [(_log[3*i], _log[3*i+2]) for i in range(it)]
+            updates += [(round(_log[3*i]), _log[3*i+2]) for i in range(it)]
             updates_t += [_log[3*i+1] for i in range(it)]
 
         i0 = np.argsort(updates_t)
-        pb = self.pb
         next_log = 1
         pb.reset()
         t = np.min(updates_t)
@@ -214,8 +228,6 @@ class DICOD(_GradientDescent):
 
         self.comm.Barrier()
         self.gather()
-        log.info("Conv sparse coding end in {:.4}s for {} iterations"
-                 "".format(time() - self.t_task, self.iteration))
         return A, B
 
     def _broadcast_array(self, arr):
