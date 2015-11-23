@@ -1,94 +1,62 @@
-import numpy as np
-from numpy.random import rand
-from cdl.multivariate_convolutional_coding_problem import \
-    MultivariateConvolutionalCodingProblem
-from cdl.dicod import DICOD
-
-def fun_rand_problem(T, S, K, d, lmbd, noise_level):
-    rho = K/(d*S)
-    t = np.arange(S)/S
-    D = [[10*rand()*np.sin(2*np.pi*K*rand()*t +
-                           (0.5-rand())*np.pi)
-          for _ in range(d)]
-         for _ in range(K)]
-    D = np.array(D)
-    nD = np.sqrt((D**2).sum(axis=-1))[:, :, np.newaxis]
-    D /= nD + (nD == 0)
-    Z = (rand(K, (T-1)*S+1) < rho)*rand(K, (T-1)*S+1)*10
-    print("\nNon zero coefficients: ", len(Z.nonzero()[0]),
-          "Sparse prob: ", K/(d*S))
-    X = np.array([[np.convolve(zk, dk, 'full') for dk in Dk]
-                  for Dk, zk in zip(D, Z)]).sum(axis=0)
-    X += noise_level*np.random.normal(size=X.shape)
-
-    z0 = np.zeros((K, (T-1)*S+1))
-    pb = MultivariateConvolutionalCodingProblem(
-        D, X, z0=z0, lmbd=lmbd)
-    pb.compute_DD()
-    return pb
 
 
 if __name__ == '__main__':
 
     import argparse
     parser = argparse.ArgumentParser('Test for the DICOD algorithm')
-    parser.add_argument('--n_jobs', type=int, default=10,
+    parser.add_argument('--njobs', type=int, default=10,
                         help='# max of process launched')
-    parser.add_argument('-T', type=int, default=1500,
+    parser.add_argument('--niter', type=int, default=100,
+                        help='# max of process launched')
+    parser.add_argument('-T', type=int, default=150,
                         help='Size of the problem')
+    parser.add_argument('-d', type=int, default=0,
+                        help='Debug level for the algorithm')
     parser.add_argument('--hostfile', type=str, default=None,
                         help='Hostfile to pass to MPI')
-    parser.add_argument('--n_rep', type=int, default=10,
+    parser.add_argument('--nrep', type=int, default=10,
                         help='# of repetition for each value of M')
+    parser.add_argument('--tmax', type=int, default=20,
+                        help='Max time for each algorithm in sec')
+    parser.add_argument('--save', type=str, default=None,
+                        metavar='DIRECTORY', help='If present, save'
+                        ' the result in the given DIRECTORY')
+    parser.add_argument('--graph', action='store_true',
+                        help='Show a graphical logging')
+    parser.add_argument('--jobs', action='store_true',
+                        help='Compute the runtime for different number '
+                             'of cores')
+    parser.add_argument('--met', action='store_true',
+                        help='Compute the optimization algorithms')
+    parser.add_argument('--no-display', action='store_false',
+                        help='Compute the optimization algorithms')
+    parser.add_argument('--step', action='store_true',
+                        help='Convolutional dicitonary learning')
     args = parser.parse_args()
 
-    i_max = 5e6
-    debug = 5
-    t_max = 7200
-    lgg = False
     graphical_cost = None
-    met = None
-    rep = 10
-    nj = 1
-    SAVE_DIR = "save_exp/"
-    common_args = dict(logging=lgg, log_rate='log1.6', i_max=i_max,
-                       t_max=t_max, graphical_cost=graphical_cost,
-                       debug=debug, tol=5e-2)
+    if args.graph:
+        graphical_cost = 'Cost'
 
-    T = args.T
-    S = 150
-    K = 10
-    d = 7
-    lmbd = 0.1
+    if args.jobs:
+        from utils.iter_njobs import iter_njobs
 
-    noise_level = 1
+        iter_njobs(T=args.T, max_jobs=args.njobs,  n_rep=args.nrep,
+                   save_dir=args.save, i_max=5e6, t_max=7200,
+                   hostfile=args.hostfile, lgg=False, graphical_cost=None,
+                   debug=args.d)
 
-    for j in range(args.n_rep):
-        pb = fun_rand_problem(T, S, K, d, lmbd, noise_level)
+    if args.met:
+        from utils.compare_methods import compare_met
 
-        dcp = DICOD(pb, n_jobs=args.n_jobs, hostfile=args.hostfile,
-                    **common_args)
+        compare_met(T=args.T, save_dir=args.save, i_max=5e6, t_max=args.tmax,
+                    n_jobs=args.njobs, hostfile=args.hostfile,
+                    graphical_cost=graphical_cost, display=args.no_display,
+                    debug=args.d)
 
-        runtimes = []
-        n_jobs = np.logspace(np.log2(2), np.log2(75), 10, base=2)[::-1]
-        n_jobs = n_jobs[n_jobs <= args.n_jobs]
-        n_jobs = n_jobs[::-1]
-        for nj in n_jobs:
-            dcp.n_jobs = int(round(nj))
-
-            dcp._init_pool()
-            dcp.end()
-            runtimes += [[dcp.runtime, dcp.runtime2]]
-            dcp.reset()
-            import time
-            time.sleep(1)
-            rt = runtimes[-1]
-            with open('runtimes_{}.csv'.format(T), 'a') as f:
-                f.write('Pb{},{},{},{}\n'.format(
-                    j, int(round(nj)), rt[0], rt[1]))
-            print('End process ', nj, 'Pb', j)
-
-    dcp.reset()
-
-    dcp._init_pool()
-    dcp.end()
+    if args.step:
+        from utils.step_detect import step_detect
+        step_detect(save_dir=args.save, i_max=5e6, t_max=args.tmax,
+                    n_jobs=args.njobs, hostfile=args.hostfile,
+                    n_iter=args.niter,
+                    graphical_cost=graphical_cost, debug=args.d)

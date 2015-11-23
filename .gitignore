@@ -10,5 +10,8 @@ __pycache__
 # Binaries
 cdl/c_dicod/c_dicod
 
+# Save experiences
+save_exp
+
 # Config files
 hostfile
