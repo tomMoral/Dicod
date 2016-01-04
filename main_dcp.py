@@ -6,11 +6,11 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser('Test for the DICOD algorithm')
     parser.add_argument('--njobs', type=int, default=10,
                         help='# max of process launched')
-    parser.add_argument('--niter', type=int, default=100,
+    parser.add_argument('--nepoch', type=int, default=4,
                         help='# max of process launched')
     parser.add_argument('-T', type=int, default=150,
                         help='Size of the problem')
-    parser.add_argument('-d', type=int, default=0,
+    parser.add_argument('--debug', '-d', dest='d', type=int, default=0,
                         help='Debug level for the algorithm')
     parser.add_argument('--hostfile', type=str, default=None,
                         help='Hostfile to pass to MPI')
@@ -31,6 +31,8 @@ if __name__ == '__main__':
     parser.add_argument('--no-display', action='store_false',
                         help='Compute the optimization algorithms')
     parser.add_argument('--step', action='store_true',
+                        help='Convolutional dicitonary learning')
+    parser.add_argument('--rand', action='store_true',
                         help='Convolutional dicitonary learning')
     args = parser.parse_args()
 
@@ -58,5 +60,12 @@ if __name__ == '__main__':
         from utils.step_detect import step_detect
         step_detect(save_dir=args.save, i_max=5e6, t_max=args.tmax,
                     n_jobs=args.njobs, hostfile=args.hostfile,
-                    n_iter=args.niter,
+                    n_epoch=args.nepoch,
                     graphical_cost=graphical_cost, debug=args.d)
+
+    if args.rand:
+        from utils.dict_learn import dict_learn
+        dict_learn(save_dir=args.save, i_max=5e6, t_max=args.tmax,
+                   n_jobs=args.njobs, hostfile=args.hostfile,
+                   n_epoch=args.nepoch,
+                   graphical_cost=graphical_cost, debug=args.d)

@@ -4,16 +4,16 @@ from time import time
 import IPython
 import matplotlib.pyplot as plt
 
-from utils.rand_problem import fun_step_problem
+from utils.rand_problem import fun_rand_problems
 from cdl.dicod import DICOD
 
 from toolbox.logger import Logger
 log = Logger('Root')
 
 
-def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
-                n_epoch=10, graphical_cost=None, save_dir=None,
-                debug=0):
+def dict_learn(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
+               n_epoch=10, graphical_cost=None, save_dir=None,
+               debug=0):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -46,17 +46,20 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
 
     '''
     try:
-        common_args = dict(logging=True, log_rate='log1.6', i_max=i_max,
+        common_args = dict(logging=False, log_rate='log1.6', i_max=i_max,
                            t_max=t_max, debug=debug, tol=5e-2)
 
         print('construct problem')
-        pbs, D, D_labels = fun_step_problem(K=50, N=None, lmbd=1)
+        pbs, D = fun_rand_problems(N=50, S=100, K=10, d=6,
+                                   noise_level=0)
+        D0 = np.copy(D)
         N = len(pbs)
         print('End\n')
         lmbd = .3
 
-        dcp = DICOD(pbs[0][0], n_jobs=n_jobs, hostfile=hostfile,
-                    positive=True, use_seg=1, **common_args)
+        pbs[0].compute_DD()
+        dcp = DICOD(pbs[0], n_jobs=n_jobs, hostfile=hostfile,
+                    positive=True, use_seg=5, **common_args)
 
         grad_D = [np.zeros(D.shape) for _ in range(N)]
         grad_nz = set()
@@ -65,7 +68,7 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
 
         order = np.arange(N)
         np.random.shuffle(order)
-        mini_batch_size = 20
+        mini_batch_size = 5
         n_batch = N // mini_batch_size
         current_batch = 0
         current_epoch = 0
@@ -75,7 +78,7 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
             # Stochastic choice of a ponit
 
             pb_batch = [
-                [pbs[i][0], i] for i in order[
+                [pbs[i], i] for i in order[
                     current_batch*mini_batch_size:
                     (current_batch+1)*mini_batch_size]]
             current_batch += 1
@@ -117,8 +120,13 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
             # reg[:, :, :] -= D[:, :, :]
             # reg[:, :, :] /= np.sqrt(1e-2+D[:, :, :]*D[:, :, :])
 
-            # Update dictionary
+            # Update dictionary with unit norm regularization
             grad = np.sum(grad_D, axis=0)/N_see
+            gw = np.sum(grad*D, axis=-1)
+            gg = np.sum(grad*grad, axis=-1)
+            lmbd = min(np.min(.5/np.sqrt(gg-gw*gw)), lmbd)
+            alpha = lmbd*gw - np.sqrt(1-lmbd*lmbd*(gg-gw*gw))
+            D *= alpha[:, :, None]
             D -= lmbd*grad
 
             if cost_i >= cost_i1 and not new:
@@ -128,7 +136,7 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
         print('='*79)
         print('Fit the pb to the latest dictionary')
         print('='*79)
-        for i, (pb, _, _) in enumerate(pbs):
+        for i, pb in enumerate(pbs):
             pb.D = D
             pb.reset()
             dcp.fit(pb)
@@ -140,7 +148,7 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
         print('='*79)
         print('Fit the pb to the latest dictionary')
         print('='*79)
-        for i, (pb, _, _) in enumerate(pbs):
+        for i, pb in enumerate(pbs):
             pb.D = D
             pb.reset()
             dcp.fit(pb)
@@ -149,5 +157,6 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
         print('\rCompute rpz: {:7}'.format('Done'))
 
     finally:
+        print("Frob norm D", np.sum((D-D0)**2)/np.sum(D0*D0))
         IPython.embed()
         log.end()

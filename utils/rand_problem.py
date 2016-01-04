@@ -2,6 +2,7 @@ import numpy as np
 from numpy.random import rand
 from cdl.multivariate_convolutional_coding_problem import \
     MultivariateConvolutionalCodingProblem
+from sys import stdout as out
 
 
 DEBUG = False
@@ -36,7 +37,7 @@ def fun_step_problem(lmbd, N=None, K=5, same=False):
     n_ex = N
     if n_ex is not None:
         n_ex += K
-    lex = db.get_data(limit=n_ex, code='max1')
+    lex = db.get_data(limit=n_ex, code='max4')
 
     n_ex = len(lex)
     lex_train = lex[:K]
@@ -55,19 +56,14 @@ def fun_step_problem(lmbd, N=None, K=5, same=False):
     l_max = np.max([d.shape[1] for d in D])
     D = [np.c_[d, np.zeros((6, l_max-d.shape[1]))] for d in D]
     D = np.array(D)
-    #D = .1*np.random.normal(size=D.shape)
+    #D = .001*np.random.normal(size=D.shape)
     #D = np.cumsum(D, axis=-1)
 
     pbs = []
-    DD = None
     for ex in lex_test:
         sig_W = _whiten_sig(ex)
         pbs += [(MultivariateConvolutionalCodingProblem(
             D, sig_W[:6], lmbd=lmbd), ex, 'right')]
-        DD = pbs[-1][0].compute_DD(DD)
-        pbs += [(MultivariateConvolutionalCodingProblem(
-            D, sig_W[6:12], lmbd=lmbd), ex, 'left')]
-        DD = pbs[-1][0].compute_DD(DD)
 
     # DEBUG test
     if DEBUG:
@@ -94,10 +90,33 @@ def fun_step_problem(lmbd, N=None, K=5, same=False):
             D, sig_W[:6], lmbd=lmbd), ex, 'right')]
         pbs[-1][0].compute_DD()
 
-
-
-
     return pbs, D, D_labels
+
+
+def fun_rand_problems(N=10, S=100, K=10, d=6, noise_level=1):
+    t = np.arange(S)/S
+    D = [[10*rand()*np.sin(2*np.pi*K*rand()*t +
+                           (0.5-rand())*np.pi)
+          for _ in range(d)]
+         for _ in range(K)]
+    D = np.array(D)
+    nD = np.sqrt((D*D).sum(axis=-1))[:, :, np.newaxis]
+    D /= nD + (nD == 0)
+
+    rho = .1*K/(d*S)
+    pbs = []
+    for n in range(N):
+        out.write("\rProblem construction: {:7.2%}".format(n/N))
+        out.flush()
+        T = np.random.randint(5, 10)
+        Z = (rand(K, (T-1)*S+1) < rho)*rand(K, (T-1)*S+1)*10
+        X = np.array([[np.convolve(zk, dk, 'full') for dk in Dk]
+                      for Dk, zk in zip(D, Z)]).sum(axis=0)
+        X += noise_level*np.random.normal(size=X.shape)
+
+        pbs += [MultivariateConvolutionalCodingProblem(
+            D, X, lmbd=1)]
+    return pbs, D
 
 
 def _whiten_sig(ex):
