@@ -129,6 +129,7 @@ double DICOD::step(){
 		return tol;
 	}
 	probe_try.clear();
+
 	//Find argmax of |z_i - z'_i|
 	int seg_start = 0;
 	int seg_end = L_proc;
@@ -209,13 +210,13 @@ bool DICOD::stop(double dz){
 	_stop |= (seconds >= t_max);
 	if(!go){
 		COMM_WORLD.Barrier();
-		if(world_rank == 0)
+		if(world_rank == 0 && (debug || DEBUG))
 			cout << "INFO - Pool - Reach optimal solution in " << seconds << endl;
 		return true;
 	}
-	if(debug && seconds >= t_max && world_rank == 0)
+	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
 		cout << "DEBUG - Pool - Reach timeout" << endl;
-	if(debug && iter >= i_max && world_rank == 0)
+	if((debug || DEBUG) && iter >= i_max && world_rank == 0)
 		cout << "DEBUG - Pool - Reach max iteration" << endl;
 	if(fabs(dz) <= tol){
 		// If just enter pause, probe other for paused
@@ -319,6 +320,7 @@ double DICOD::compute_cost(){
   				msg[d*(S-1)+s] += ws.dst[s];
 		}
 	if(world_rank != world_size-1){
+
 		COMM_WORLD.Isend(msg, dim*(S-1), DOUBLE, world_rank+1, 27);
 		L_rec = L_proc;
 	}
@@ -344,8 +346,20 @@ double DICOD::compute_cost(){
 	delete[] rec;
 	return cost;
 }
+
+// bool DICOD::check_dest(int dest){
+// 	if(dest > -1 && dest < world_size){
+// 		COMM_WORLD.Isend(msg, HEADER, DOUBLE,
+// 						 dest, 34+(1-2*src));
+// 		messages.push_back(msg);
+// 	}
+// 	else{
+// 		cout << "ERROR - Pool - tried to send a message to" << dest << endl;
+// 	}
+// }
+
 void DICOD::end(){
-	if(debug && world_rank == 0)
+	if((debug || DEBUG) && world_rank == 0)
 		cout << "DEBUG - Pool - flush queue" << endl;
 	if(world_rank != 0)
 		send_msg(STOP, 1, false);
@@ -365,7 +379,7 @@ void DICOD::end(){
 		COMM_WORLD.Recv(msg, size_msg, DOUBLE, src, tag);
 		if(msg[0] == STOP && msg[1] >= 0)
 			end_neigh[(int) msg[1]] = true;
-		if(debug && msg[0] == UP && !go)
+		if((debug || DEBUG) && msg[0] == UP && !go)
 			cout << "WARNING - Pool - Missed wake up" << endl;
 		delete[] msg;
 	}
@@ -375,7 +389,7 @@ void DICOD::end(){
 		delete[] messages.front();
 		messages.pop_front();
 	}
-	if(debug && world_rank == 0)
+	if((debug || DEBUG) && world_rank == 0)
 		cout << "DEBUG - Pool - Clean operation ok" << endl;
 	parentComm->Barrier();
 }
@@ -493,7 +507,7 @@ void DICOD::send_update(double dz, int ll, int off, int k0){
 	msg[5] = (double) start_DD;
 	msg[6] = dz;
 	int dest = world_rank+(1-2*src);
-	if(dest > -1 || dest < world_size){
+	if(dest > -1 && dest < world_size){
 		COMM_WORLD.Isend(msg, HEADER, DOUBLE,
 						 dest, 34+(1-2*src));
 		messages.push_back(msg);
@@ -508,7 +522,7 @@ void DICOD::send_msg(int msg_type, int arg, bool up){
 	msg[0] = (double) msg_type;
 	msg[1] = (double) arg;
 	int dest = world_rank+(2*up-1);
-	if(dest > -1 || dest < world_size){
+	if(dest > -1 && dest < world_size){
 		COMM_WORLD.Isend(msg, sz, DOUBLE,
 						 dest, 34+(2*up-1));
 		messages.push_back(msg);

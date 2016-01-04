@@ -53,12 +53,13 @@ class DICOD(_GradientDescent):
             self.name = 'MPI_DCP' + str(self.n_jobs) + '_' + str(self.id)
         print('Logger', log.level)
 
-    def fit(self, pb):
+    def fit(self, pb, DD=None):
         self.pb = pb
-        self._init_pool()
+        DD = self._init_pool(DD=DD)
         self.end()
+        return self.pb.DD
 
-    def _init_pool(self):
+    def _init_pool(self, DD=None):
         '''Launch n_jobs process to compute the convolutional
         coding solution with MPI process
         '''
@@ -78,9 +79,9 @@ class DICOD(_GradientDescent):
         log.debug('Created pool of worker in {:.4}s'.format(time()-t))
 
         # Send the job to process
-        self.send_task()
+        self.send_task(DD)
 
-    def send_task(self):
+    def send_task(self, DD=None):
         self.K, self.d, self.S = self.pb.D.shape
         self.t_start = time()
         pb = self.pb
@@ -89,7 +90,7 @@ class DICOD(_GradientDescent):
         L = T-S+1
 
         # Share constants
-        pb.compute_DD()
+        pb.compute_DD(DD=DD)
         alpha_k = np.sum(np.mean(pb.D*pb.D, axis=1), axis=1)
         alpha_k += (alpha_k == 0)
         self.t_init = time() - self.t_start
