@@ -9,6 +9,9 @@ from .c_dicod.mpi_pool import get_reusable_pool
 from toolbox.logger import Logger
 log = Logger('MPI_DCP')
 
+ALGO_GS = 0
+ALGO_RANDOM = 1
+
 
 class DICOD(_GradientDescent):
     """MPI implementation of the distributed convolutional pursuit
@@ -40,7 +43,8 @@ class DICOD(_GradientDescent):
     """
 
     def __init__(self, pb, n_jobs=1, use_seg=1, hostfile=None,
-                 logging=False, debug=0, positive=False, **kwargs):
+                 logging=False, debug=0, positive=False,
+                 algorithm=ALGO_GS, patience=1000, **kwargs):
         log.set_level(max(3-debug, 1)*10)
         debug = max(debug-1, 0)
         super(DICOD, self).__init__(pb, debug=debug, **kwargs)
@@ -50,6 +54,8 @@ class DICOD(_GradientDescent):
         self.logging = 1 if logging else 0
         self.use_seg = use_seg
         self.positive = 1 if positive else 0
+        self.algorithm = algorithm
+        self.patience = 1000
         if self.name == '_GD'+str(self.id):
             self.name = 'MPI_DCP' + str(self.n_jobs) + '_' + str(self.id)
         print('Logger', log.level)
@@ -108,7 +114,9 @@ class DICOD(_GradientDescent):
                       self.pb.lmbd, self.tol, float(self.t_max),
                       self.i_max/self.n_jobs, float(self.debug),
                       float(self.logging), float(self.use_seg),
-                      float(self.positive)], 'd')
+                      float(self.positive), float(self.algorithm),
+                      float(self.patience)],
+                     'd')
         self._broadcast_array(N)
 
         # Share the work between the processes

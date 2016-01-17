@@ -1,9 +1,14 @@
+
+#ifndef DICOD_H
+#define DICOD_H
+
 #include <mpi.h>
 #include <time.h>
 #include <unordered_map>
 #include <list>
 #include <chrono>
 #include <thread>
+#include <random>
 
 //Define messages info
 #define STOP 0
@@ -11,6 +16,9 @@
 #define UP 2
 #define REQ_PROBE 3
 #define REP_PROBE 4
+
+#define ALGO_GS 0
+#define ALGO_RANDOM 1
 
 #define HEADER 7
 
@@ -47,6 +55,7 @@ class DICOD
 		int L_proc, L_proc_S, off, iter;
 		int T, dim, S, K, L, i_max;
 		int world_size, world_rank;
+		int algo, patience;
 		double next_probe, up_probe, runtime, t_init;
 		chrono::high_resolution_clock::time_point t_start;
 		bool pause, go, debug, logging, positive;
@@ -54,6 +63,7 @@ class DICOD
 		unordered_map<int, int> probe_result;
 		list<int> probe_try;
 		list<double> log_dz, log_t, log_i0;
+		mt19937 rng;
 
 		// Segment routine variables
 		int use_seg, seg_size;
@@ -72,3 +82,19 @@ class DICOD
 		void probe_reply();
 	
 };
+
+/*
+void solve_DICOD(Intercomm *parentComm, int& rank, bool& debug){
+	double dz = 100.;
+	DICOD *dcp = new DICOD(parentComm);
+	while(!dcp->stop(dz))
+		dz = dcp->step();
+
+	// Send back
+	dcp->reduce_pt();
+	dcp->end();
+    debug = dcp->get_dbg();
+    rank = dcp->get_rank();
+}*/
+
+#endif

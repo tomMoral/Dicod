@@ -7,6 +7,7 @@
 // Date: May 2015
 //
 #include "dicod.h"
+
 #include <iostream>
 #include <stdlib.h>
 #include <math.h>
@@ -47,10 +48,13 @@ DICOD::DICOD(Intercomm* _parentComm){
 			 << COMM_WORLD.Get_size() << endl;
 		delete[] procName;
 	}
+	int seed =  chrono::duration_cast<chrono::milliseconds>(
+                   t_start.time_since_epoch()).count();
+	rng.seed(world_rank*seed);
 
 	this->receive_task();
 }
-// Destruceor, free all arrays
+// Destructor, delete all arrays
 DICOD::~DICOD(){
 	delete[] D;
 	delete[] DD;
@@ -130,7 +134,8 @@ double DICOD::step(){
 	}
 	probe_try.clear();
 
-	//Find argmax of |z_i - z'_i|
+	// Compute the current segment if we use the 
+	// segmented version of the algorithm
 	int seg_start = 0;
 	int seg_end = L_proc;
 	if(use_seg > 1){
@@ -143,21 +148,44 @@ double DICOD::step(){
 		}
 		seg_end = min(seg_end, L_proc);
 	}
-	for(k = 0; k < K; k++){
-		ak = alpha_k[k];
-		for (t=seg_start; t < seg_end; t++){
-			i = k*L_proc+t;
-			beta_i = -beta[i];
-			sign_beta_i = (beta_i >= 0)?1:-1;
-			if(positive)
-				sign_beta_i = (beta_i >= 0)?1:0;
-			beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
-			if(adz < fabs(beta_i-pt[i])){
-				k0 = k;
-				t0 = t;
-				dz = pt[i]-beta_i;
-				adz = fabs(dz);
+
+	if(algo == ALGO_GS){
+		//Find argmax of |z_i - z'_i|
+		for(k = 0; k < K; k++){
+			ak = alpha_k[k];
+			for (t=seg_start; t < seg_end; t++){
+				i = k*L_proc+t;
+				beta_i = -beta[i];
+				sign_beta_i = (beta_i >= 0)?1:-1;
+				if(positive)
+					sign_beta_i = (beta_i >= 0)?1:0;
+				beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
+				if(adz < fabs(beta_i-pt[i])){
+					k0 = k;
+					t0 = t;
+					dz = pt[i]-beta_i;
+					adz = fabs(dz);
+				}
 			}
+		}
+	}
+	else if(algo == ALGO_RANDOM){
+		uniform_int_distribution<> dis_t(seg_start, seg_end-1);
+		uniform_int_distribution<> dis_k(0, K-1);
+		t = dis_t(rng);
+		k  = dis_k(rng);
+		ak = alpha_k[k];
+		i = k*L_proc+t;
+		beta_i = -beta[i];
+		sign_beta_i = (beta_i >= 0)?1:-1;
+		if(positive)
+			sign_beta_i = (beta_i >= 0)?1:0;
+		beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
+		if(adz < fabs(beta_i-pt[i])){
+			k0 = k;
+			t0 = t;
+			dz = pt[i]-beta_i;
+			adz = fabs(dz);
 		}
 	}
 	// If there is no update
@@ -189,6 +217,8 @@ double DICOD::step(){
 double DICOD::_return_dz(double dz){
 
 	if(use_seg > 1){
+		// For semgented algorithm, return the max of dz
+		// over the n_seg last updates
 		int k;
 		list<double>::reverse_iterator rit;
 
@@ -198,6 +228,11 @@ double DICOD::_return_dz(double dz){
 			if(fabs(*rit) > fabs(dz))
 				dz = *rit;
 	}
+	if(algo == ALGO_RANDOM)
+		// For the RANDOM algorithm, wait until we get a number of 
+		// 0 updates superior to patience
+		if(patience > n_zero)
+			dz = 2*tol;
 	return dz;
 }
 
@@ -445,6 +480,7 @@ void DICOD::process_queue(){
 				}
 				pause = false;
 				runtime = 0;
+				n_zero = 0;
 				break;
 		}
 		delete[] msg;
@@ -554,7 +590,9 @@ void DICOD::receive_task(){
 	debug = ((int) constants[8] > 0);		// Debug level
 	logging = ((int) constants[9] == 1);	// Activate the logging
 	use_seg = ((int) constants[10]);		// Use a semgneted update
-	positive = ((int) constants[11] == 1);	// Use a semgneted update
+	positive = ((int) constants[11] == 1);	// Use to only activate positive updates
+	algo =(int) constants[12];				// Coordinate choice algorihtm
+	patience = (int) constants[13];			// Max number of 0 updates in ALGO_RANDOM
 	delete[] constants;
 
 	L = T-S+1;   // Size of the code
