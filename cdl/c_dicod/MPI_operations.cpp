@@ -32,9 +32,9 @@ void confirm_array(Intercomm* comm, double a0, double a1){
 
 int clean_up(Intercomm* comm, bool debug, int rank){
 	if(debug && rank == 0)
-		cout << "DEBUG - Pool - clean end" << endl;
-	comm->Barrier();
+		cout << "DEBUG  - MPI - clean end" << endl;
 	comm->Disconnect();
+	//comm->Free();
 	Finalize();
 	if(Is_finalized())
 		return 0;

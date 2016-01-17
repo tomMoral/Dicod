@@ -31,6 +31,6 @@ int main(int argc, char**argv) {
 	dcp->end();
     bool debug = dcp->get_dbg();
     int rank = dcp->get_rank();
-	free(dcp);
+	delete dcp;
     return clean_up(&parentComm, debug, rank);
 }

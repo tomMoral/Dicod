@@ -195,6 +195,7 @@ double DICOD::step(){
 		return _return_dz(0.);;
 	}
 	n_zero = 0;
+	cout << "Update t: " << t0 << endl;
 
 	// Else update the point
 	pt[k0*L_proc+t0] -= dz;
@@ -246,13 +247,13 @@ bool DICOD::stop(double dz){
 	if(!go){
 		COMM_WORLD.Barrier();
 		if(world_rank == 0 && (debug || DEBUG))
-			cout << "INFO - Pool - Reach optimal solution in " << seconds << endl;
+			cout << "INFO - MPI_worker - Reach optimal solution in " << seconds << endl;
 		return true;
 	}
 	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
-		cout << "DEBUG - Pool - Reach timeout" << endl;
+		cout << "DEBUG - MPI_worker - Reach timeout" << endl;
 	if((debug || DEBUG) && iter >= i_max && world_rank == 0)
-		cout << "DEBUG - Pool - Reach max iteration" << endl;
+		cout << "DEBUG - MPI_worker - Reach max iteration" << endl;
 	if(fabs(dz) <= tol){
 		// If just enter pause, probe other for paused
 		if(world_rank == 0){
@@ -389,13 +390,13 @@ double DICOD::compute_cost(){
 // 		messages.push_back(msg);
 // 	}
 // 	else{
-// 		cout << "ERROR - Pool - tried to send a message to" << dest << endl;
+// 		cout << "ERROR - MPI_worker - tried to send a message to" << dest << endl;
 // 	}
 // }
 
 void DICOD::end(){
 	if((debug || DEBUG) && world_rank == 0)
-		cout << "DEBUG - Pool - flush queue" << endl;
+		cout << "DEBUG - MPI_worker - flush queue" << endl;
 	if(world_rank != 0)
 		send_msg(STOP, 1, false);
 	if(world_rank != world_size-1)
@@ -415,7 +416,8 @@ void DICOD::end(){
 		if(msg[0] == STOP && msg[1] >= 0)
 			end_neigh[(int) msg[1]] = true;
 		if((debug || DEBUG) && msg[0] == UP && !go)
-			cout << "WARNING - Pool - Missed wake up" << endl;
+			cout << "WARNING - MPI_worker" << world_rank
+				 <<" - Missed wake up" << endl;
 		delete[] msg;
 	}
 
@@ -425,7 +427,7 @@ void DICOD::end(){
 		messages.pop_front();
 	}
 	if((debug || DEBUG) && world_rank == 0)
-		cout << "DEBUG - Pool - Clean operation ok" << endl;
+		cout << "DEBUG - MPI_worker - Clean operation ok" << endl;
 	parentComm->Barrier();
 }
 // Process the message queue
@@ -549,7 +551,8 @@ void DICOD::send_update(double dz, int ll, int off, int k0){
 		messages.push_back(msg);
 	}
 	else{
-		cout << "ERROR - Pool - tried to send a message to" << dest << endl;
+		cout << "ERROR - MPI_worker" << world_rank 
+			 << " - tried to send a message to" << dest << endl;
 	}
 }
 void DICOD::send_msg(int msg_type, int arg, bool up){
@@ -564,7 +567,8 @@ void DICOD::send_msg(int msg_type, int arg, bool up){
 		messages.push_back(msg);
 	}
 	else{
-		cout << "ERROR - Pool - tried to send a message to" << dest << endl;
+		cout << "ERROR - MPI_worker" << world_rank 
+			 << " - tried to send a message to" << dest << endl;
 	}
 }
 void DICOD::receive_task(){
@@ -594,6 +598,10 @@ void DICOD::receive_task(){
 	algo =(int) constants[12];				// Coordinate choice algorihtm
 	patience = (int) constants[13];			// Max number of 0 updates in ALGO_RANDOM
 	delete[] constants;
+
+	if(world_rank == 0 && (DEBUG || debug))
+		cout << "DEBUG - MPI_worker - Start with algoirhtm : " 
+			 << ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
 
 	L = T-S+1;   // Size of the code
 	L_proc = L / world_size + 1;
