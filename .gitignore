@@ -9,6 +9,7 @@ __pycache__
 
 # Binaries
 cdl/c_dicod/c_dicod
+cdl/c_dicod/start_worker
 
 # Save experiences
 save_exp

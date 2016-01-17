@@ -4,6 +4,7 @@ import numpy as np
 from time import time
 from toolbox.optim import _GradientDescent
 from os import path
+from .c_dicod.mpi_pool import get_reusable_pool
 
 from toolbox.logger import Logger
 log = Logger('MPI_DCP')
@@ -68,14 +69,17 @@ class DICOD(_GradientDescent):
 
         # Create a pool of worker
         t = time()
-        mpi_info = MPI.Info.Create()
+        '''mpi_info = MPI.Info.Create()
         if self.hostfile is not None:
             mpi_info.Set("add-hostfile", self.hostfile)
             mpi_info.Set("map_bynode", '1')
         c_prog = path.dirname(path.abspath(__file__))
         c_prog = path.join(c_prog, 'c_dicod', 'c_dicod')
         self.comm = MPI.COMM_SELF.Spawn(c_prog, maxprocs=self.n_jobs,
-                                        info=mpi_info)
+                                        info=mpi_info)'''
+        self._pool = get_reusable_pool(self.n_jobs, self.hostfile)
+        self.comm = self._pool.comm
+        self._pool.mng_bcast(np.array([3]*4).astype('i'))
         log.debug('Created pool of worker in {:.4}s'.format(time()-t))
 
         # Send the job to process
@@ -126,16 +130,14 @@ class DICOD(_GradientDescent):
         log.debug('End initialisation - {:.4}s'.format(self.t_init))
 
     def end(self):
-
         #reduce_pt
         self._gather()
-
-        log.debug("DICOD - Clean end")
-        self.comm.Barrier()
-        self.comm.Disconnect()
-
         if type(self.t) == int:
             self.t = time()-self.t_start
+        return
+
+        log.debug("DICOD - Clean end")
+        self.comm.Disconnect()
 
     def _gather(self):
         K, L, L_proc = self.K, self.L, self.L_proc
