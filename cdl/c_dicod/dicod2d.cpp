@@ -659,25 +659,19 @@ double DICOD2D::compute_cost(){
   				}
 		}
 	clear_workspace(ws);
-	if(w_rank > 0){
+	if(w_rank > 0)
 		COMM_WORLD.Isend(msg_right, dim*h_proc_S*(w_dic-1), DOUBLE,
 						 world_rank-1, TAG_MSG_COST);
-		L_rec = L_proc;
-	}
-	if(w_rank > 0 && h_rank > 0){
+	if(w_rank > 0 && h_rank > 0)
 		COMM_WORLD.Isend(msg_corner, dim*(h_dic-1)*(w_dic-1), DOUBLE,
 						 world_rank-w_world-1, TAG_MSG_COST);
-		L_rec = L_proc;
-	}
-	if(h_rank > 0){
+	if(h_rank > 0)
 		COMM_WORLD.Isend(msg_bottom, dim*(h_dic-1)*w_proc_S, DOUBLE,
 						 world_rank-w_world, TAG_MSG_COST);
-		L_rec = L_proc;
-	}
 	if(w_rank < w_world-1){
-		val_msg = msg_in_right;
 		COMM_WORLD.Recv(msg_in_right, dim*h_proc_S*(w_dic-1), DOUBLE,
 						world_rank+1, TAG_MSG_COST);
+		val_msg = msg_in_right;
 		for(d=0; d< dim; d++){
 			rec_off = d*L_rec;
 			for(h_tau=0; h_tau < h_proc_S; h_tau++)

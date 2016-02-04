@@ -42,9 +42,10 @@ DICOD::DICOD(Intercomm* _parentComm){
 		char* procName = new char[MAX_PROCESSOR_NAME];
 		int plen;
 		Get_processor_name(procName, plen);
-		cout << "Start processor " << world_rank << "/" << world_size
+		cout << "DEBUG - MPI_Worker" << world_rank << " - Start processor "
+			 << world_rank << "/" << world_size
 			 << " on " << procName << endl
-			 << "    and with COMM_WORLD " << COMM_WORLD.Get_rank() << "/" 
+			 << "    and with COMM_WORLD " << COMM_WORLD.Get_rank() << "/"
 			 << COMM_WORLD.Get_size() << endl;
 		delete[] procName;
 	}
@@ -96,7 +97,7 @@ void DICOD::receive_task(){
 	delete[] constants;
 
 	if(world_rank == 0 && (DEBUG || debug))
-		cout << "DEBUG - MPI_worker - Start with algoirhtm : " 
+		cout << "DEBUG - MPI_worker - Start with algoirhtm : "
 			 << ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
 
 	L = T-S+1;   // Size of the code
@@ -182,7 +183,7 @@ void DICOD::_init_algo(){
 double DICOD::step(){
 	if(pause)
 		this_thread::sleep_for(chrono::milliseconds(PAUSE_DELAY));
-	
+
 	process_queue();
 	int i, k, t, k_off;
 	int k0, t0 = -1;
@@ -194,7 +195,7 @@ double DICOD::step(){
 	}
 	probe_try.clear();
 
-	// Compute the current segment if we use the 
+	// Compute the current segment if we use the
 	// segmented version of the algorithm
 	int seg_start = 0;
 	int seg_end = L_proc;
@@ -263,7 +264,7 @@ double DICOD::step(){
 		chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
 		chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
 	  	double seconds = time_span.count();
-	
+
 		log_t.push_back(seconds);
 		log_dz.push_back(-dz);
 		log_i0.push_back((double) k0*L+proc_off+t0);
@@ -294,7 +295,7 @@ double DICOD::_return_dz(double dz){
 				dz = *rit;
 	}
 	if(algo == ALGO_RANDOM)
-		// For the RANDOM algorithm, wait until we get a number of 
+		// For the RANDOM algorithm, wait until we get a number of
 		// 0 updates superior to patience
 		if(patience > n_zero)
 			dz = 2*tol;
@@ -332,7 +333,7 @@ void DICOD::_update_beta(double dz, int k0, int t0){
 	else if (t0 > L_proc-S && world_rank < world_size-1)
 		send_update_msg(world_rank+1, dz, k0, 0, ll, s_DD-ll);
 }
-void DICOD::send_update_msg(int dest, double dz, int k0, 
+void DICOD::send_update_msg(int dest, double dz, int k0,
 							int cod_start, int DD_start, int ll)
 {
 	double* msg = new double[HEADER];
@@ -425,7 +426,7 @@ void DICOD::reduce_pt(){
 
 double DICOD::compute_cost(){
 	Workspace ws;
-	int s, d, k;
+	int s, d, k, tau;
 	init_workspace(ws, LINEAR_FULL, 1, L_proc, 1, S);
 	double *msg = new double[(S-1)*dim], *msg_in = new double[(S-1)*dim];
 	double *src, *kernel, *rec = new double[dim*L_proc_S];
@@ -441,27 +442,40 @@ double DICOD::compute_cost(){
   			for(s=0; s < S-1; s++)
   				msg[d*(S-1)+s] += ws.dst[s];
 		}
-	if(world_rank != world_size-1){
+	if(world_rank > 0){
 
-		COMM_WORLD.Isend(msg, dim*(S-1), DOUBLE, world_rank+1, 27);
+		COMM_WORLD.Isend(msg, dim*(S-1), DOUBLE, world_rank-1, TAG_MSG_COST);
 	}
-	if(world_rank != 0){
-		COMM_WORLD.Recv(msg_in, dim*(S-1), DOUBLE, world_rank-1, 27);
+	if(world_rank < world_size-1){
+		COMM_WORLD.Recv(msg_in, dim*(S-1), DOUBLE, world_rank+1, TAG_MSG_COST);
 		for(d=0; d< dim; d++)
 			for(s=0; s < S-1; s++)
-				rec[d*L_proc+s] += msg_in[d*(S-1)+s];
+				rec[d*L_proc_S+s] += msg_in[d*(S-1)+s];
 	}
 	delete[] msg_in;
-	double a, cost = 0;
+	double a, cost, Er = 0;
 	double *its = sig, *itr = rec;
-	while(its != sig+dim*L_proc_S){
-		a = (*its++ - *itr++);
-		cost += a*a;
+	int L_off = S-1, L_ll = L_proc;
+	if(world_rank == 0){
+		L_off = 0;
+		L_ll = L_proc_S;
 	}
-	a /= 2*dim;
+	for(d=0; d < dim; d++){
+		its += L_off;
+		itr += L_off;
+		for(tau = 0; tau < L_ll; tau++){
+			a = (*its++ - *itr++);
+			Er += a*a;
+		}
+	}
+
+	Er /= 2*dim;
+	cout.precision(10);
+	double z_l1 = 0;
 	its = pt;
 	while(its != pt+K*L_proc)
-		cost += lmbd*fabs(*its++);
+		z_l1 += fabs(*its++);
+	cost = Er + lmbd*z_l1/L;
 	COMM_WORLD.Barrier();
 	delete[] msg;
 	delete[] rec;
@@ -605,7 +619,7 @@ void DICOD::send_msg(int msg_type, int arg, bool up){
 		messages.push_back(msg);
 	}
 	else{
-		cout << "ERROR - MPI_worker" << world_rank 
+		cout << "ERROR - MPI_worker" << world_rank
 			 << " - tried to send a message to" << dest << endl;
 	}
 }

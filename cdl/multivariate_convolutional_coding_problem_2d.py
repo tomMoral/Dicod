@@ -1,5 +1,5 @@
 import numpy as np
-from scipy.signal import convolve2d
+from scipy.signal import fftconvolve
 
 from toolbox.optim.problem import _Problem
 
@@ -46,7 +46,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
     def compute_DD(self, DD=None):
         self.DD = DD
         if self.DD is None:
-            self.DD = np.mean([[[convolve2d(dk0, dk1, mode='full')
+            self.DD = np.mean([[[fftconvolve(dk0, dk1, mode='full')
                                  for dk0, dk1 in zip(d0, d1)]
                                 for d1 in self.D]
                                for d0 in self.D[:, :, ::-1, ::-1]], axis=2)
@@ -58,7 +58,6 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
             D = self.D
             if dD is not None:
                 D = D + dD
-            #D /= np.sqrt(np.sum(D*D, axis=2))[:, :, np.newaxis]
         self.D = D
         self.L = np.sqrt(np.mean(self.D*self.D))
         if DD is None:
@@ -78,7 +77,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         '''
         if pt is None:
             pt = self.pt
-        return (self.Er(pt) + self.lmbd*np.sum(abs(pt)))/np.prod(pt.shape[-2:])
+        return self.Er(pt) + self.lmbd*np.sum(abs(pt))/np.prod(pt.shape[-2:])
 
     def grad(self, pt=None):
         '''Compute the gradient at the given point
@@ -115,5 +114,5 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
     def reconstruct(self, pt):
         '''Reconstruct the signal from the given code
         '''
-        return np.sum([[convolve2d(dk, zm) for dk in Dm]
+        return np.sum([[fftconvolve(dk, zm) for dk in Dm]
                        for Dm, zm in zip(self.D, pt)], axis=0)
