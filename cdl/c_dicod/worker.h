@@ -12,6 +12,7 @@
 #define RESIZE_SERVER 1
 #define RESIZE_CLIENT 2
 #define SOLVE_DICOD 3
+#define SOLVE_DICOD2D 4
 
 // CONTROL MSG TAG
 #define TAG_MNG_MSG 0
@@ -37,5 +38,4 @@ public:
 	
 };
 
-void delay(int);
 #endif

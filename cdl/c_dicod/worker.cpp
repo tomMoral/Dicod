@@ -1,5 +1,6 @@
 #include "worker.h"
 #include "dicod.h"
+#include "dicod2d.h"
 #include <unistd.h>
 
 Worker::Worker(Intercomm* _parentComm){
@@ -35,6 +36,8 @@ void Worker::control_loop(){
 	Intercomm comm;
 	Intracomm commi;
 	DICOD *dcp;
+	DICOD2D *dcp2;
+	double dz;
 	msg[0] = RUN;
 	while(msg[0] > 0){
 		Status status;
@@ -82,7 +85,7 @@ void Worker::control_loop(){
 			//comm.Free();
 		break;
 		case SOLVE_DICOD:
-			double dz = 100.;
+			dz = 100.;
 			dcp = new DICOD(parentComm);
 			while(!dcp->stop(dz))
 				dz = dcp->step();
@@ -92,12 +95,9 @@ void Worker::control_loop(){
 			dcp->end();
 			delete dcp;
 		break;
+		case SOLVE_DICOD2D:
+			solve_DICOD(parentComm);
+		break;
 		}
 	}
 }
-
-
-void delay(int msec){
-	
-}
-
