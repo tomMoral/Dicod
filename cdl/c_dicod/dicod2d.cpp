@@ -716,74 +716,39 @@ double DICOD2D::compute_cost(){
 	delete[] msg_in_corner;
 	delete[] msg_in_bottom;
 
-	double a, cost = 0;
+	double a, cost, Er = 0;
 	double *its = sig, *itr = rec;
-	for(d=0; d < dim; d++){
-		its += (h_dic-1)*w_proc_S;
-		itr += (h_dic-1)*w_proc_S;
-		for(h_tau = 0; h_tau < h_proc; h_tau++){
-			its += w_dic-1;
-			itr += w_dic-1;
-			for(w_tau = 0; w_tau < w_proc; w_tau++){
-				a = (*its++ - *itr++);
-				cost += a*a;
-
-			}
-		}
-	}
+	int h_rec_off = (h_dic-1)*w_proc_S;
+	int w_rec_off = w_dic-1;
+	int h_rec_ll = h_proc;
+	int w_rec_ll = w_proc;
 	if(h_rank == 0){
-		its = sig;
-		itr = rec;
-		for(d=0; d<dim; d++){
-			for(h_tau = 0; h_tau < h_dic-1; h_tau++){
-				its += w_dic-1;
-				itr += w_dic-1;
-				for(w_tau = 0; w_tau < w_proc ; w_tau++){
-					a = (*its++ - *itr++);
-					cost += a*a;
-				}
-			}
-			its += h_proc*w_proc_S;
-			itr += h_proc*w_proc_S;
-		}
+		h_rec_off = 0;
+		h_rec_ll = h_proc_S;
 	}
 	if(w_rank == 0){
-		its = sig;
-		itr = rec;
-		for(d=0; d<dim; d++){
-			its += (h_dic-1)*w_proc_S;
-			itr += (h_dic-1)*w_proc_S;
-			for(h_tau=0; h_tau < h_proc; h_tau++){
-				for(w_tau=0; w_tau<w_dic-1; w_tau++){
-					a = (*its++ - *itr++);
-					cost += a*a;
-				}
-			}
-		}
+		w_rec_off = 0;
+		w_rec_ll = w_proc_S;
 	}
-	if(h_rank == 0 && w_rank == 0){
-		its = sig;
-		itr = rec;
-		for(d=0; d<dim; d++){
-			for(h_tau = 0; h_tau < h_dic-1; h_tau++){
-				for(w_tau = 0; w_tau < w_proc; w_tau++){
-					a = (*its++ - *itr++);
-					cost += a*a;
-				}
-				its += w_proc;
-				itr += w_proc;
-			}
-			its += h_proc*w_proc_S;
-			itr += h_proc*w_proc_S;
-		}
-	}
+	for(d=0; d < dim; d++){
+		its += h_rec_off;
+		itr += h_rec_off;
+		for(h_tau = 0; h_tau < h_rec_ll; h_tau++){
+			its += w_rec_off;
+			itr += w_rec_off;
+			for(w_tau = 0; w_tau < w_rec_ll; w_tau++){
+				a = (*its++ - *itr++);
+				Er += a*a;
 
-	cost /= 2*dim;
+			}
+		}
+	}
+	Er /= 2*dim;
 	its = pt;
 	double z_l1 = 0;
 	while(its != pt+K*L_proc)
 		z_l1 += fabs(*its++);
-	cost += lmbd*z_l1/L;
+	cost = Er + lmbd*z_l1/L;
 	COMM_WORLD.Barrier();
 	delete[] msg_right;
 	delete[] msg_corner;
