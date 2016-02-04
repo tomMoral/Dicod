@@ -85,7 +85,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         if pt is None:
             pt = self.pt
         residual = self.reconstruct(pt) - self.x
-        _grad = np.mean([[np.convolve(dk, rk, mode='valid')
+        _grad = np.mean([[fftconvolve(dk, rk, mode='valid')
                          for dk, rk in zip(Dm, residual)]
                         for Dm in self.D[:, :, ::-1]], axis=1)
         return _grad
@@ -105,7 +105,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
 
     def grad_D(self, pt):
         residual = self.reconstruct(pt) - self.x
-        self._grad_D = [[np.convolve(z, rk, mode='valid')
+        self._grad_D = [[fftconvolve(z, rk, mode='valid')
                          for rk in residual]
                         for z in pt[:, ::-1]]
         self._grad_D = np.array(self._grad_D)

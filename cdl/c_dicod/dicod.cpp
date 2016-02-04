@@ -90,7 +90,7 @@ void DICOD::receive_task(){
 	i_max = (int) constants[7];				// # iterations maximum
 	debug = ((int) constants[8] > 0);		// Debug level
 	logging = ((int) constants[9] == 1);	// Activate the logging
-	use_seg = ((int) constants[10]);		// Use a semgneted update
+	n_seg = ((int) constants[10]);			// Use a segmented update
 	positive = ((int) constants[11] == 1);	// Use to only activate positive updates
 	algo =(int) constants[12];				// Coordinate choice algorihtm
 	patience = (int) constants[13];			// Max number of 0 updates in ALGO_RANDOM
@@ -170,8 +170,7 @@ void DICOD::_init_algo(){
 	// Init the segment choosing and stoping
 	current_seg = 0;
 	seg_dz = 0.;
-	n_seg = use_seg;
-	seg_size = ceil(L_proc * 1. / use_seg);
+	seg_size = ceil(L_proc * 1. / n_seg);
 	n_zero = 0;
 
 	end_neigh = new bool[2];
@@ -199,7 +198,7 @@ double DICOD::step(){
 	// segmented version of the algorithm
 	int seg_start = 0;
 	int seg_end = L_proc;
-	if(use_seg > 1){
+	if(n_seg > 1){
 		seg_start = current_seg*seg_size;
 		seg_end = (current_seg+1)*seg_size;
 		current_seg += 1;
@@ -269,7 +268,7 @@ double DICOD::step(){
 		log_dz.push_back(-dz);
 		log_i0.push_back((double) k0*L+proc_off+t0);
 	}
-	else if (use_seg > 1){
+	else if (n_seg > 1){
 		log_dz.push_back(-dz);
 	}
 	_update_beta(dz, k0, t0);
@@ -282,7 +281,7 @@ double DICOD::step(){
 // Random algorithm and in segmented iterations
 double DICOD::_return_dz(double dz){
 
-	if(use_seg > 1){
+	if(n_seg > 1){
 		// For semgented algorithm, return the max of dz
 		// over the n_seg last updates
 		int k;

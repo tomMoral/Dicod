@@ -66,7 +66,7 @@ class DICOD
 		mt19937 rng;
 
 		// Segment routine variables
-		int use_seg, seg_size;
+		int seg_size;
 		int current_seg, n_seg, n_zero;
 		double seg_dz;
 
@@ -80,7 +80,7 @@ class DICOD
 		void send_msg(int msg_type, int arg, bool up);
 		void Ibroadcast(int msg_t);
 		void probe_reply();
-	
+
 };
 
 /*

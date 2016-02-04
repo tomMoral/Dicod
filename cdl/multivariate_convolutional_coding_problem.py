@@ -1,6 +1,7 @@
 import numpy as np
 
 from toolbox.optim.problem import _Problem
+from scipy.signal import fftconvolve
 
 
 class MultivariateConvolutionalCodingProblem(_Problem):
@@ -40,7 +41,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
     def compute_DD(self, DD=None):
         self.DD = DD
         if self.DD is None:
-            self.DD = np.mean([[[np.convolve(dk, dk1)
+            self.DD = np.mean([[[fftconvolve(dk, dk1)
                                  for dk, dk1 in zip(d, d1)]
                                 for d1 in self.D]
                                for d in self.D[:, :, ::-1]], axis=2)
@@ -80,7 +81,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         if pt is None:
             pt = self.pt
         residual = self.reconstruct(pt) - self.x
-        _grad = np.mean([[np.convolve(dk, rk, mode='valid')
+        _grad = np.mean([[fftconvolve(rk, dk, mode='valid')
                          for dk, rk in zip(Dm, residual)]
                         for Dm in self.D[:, :, ::-1]], axis=1)
         return _grad
@@ -100,7 +101,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
 
     def grad_D(self, pt):
         residual = self.reconstruct(pt) - self.x
-        self._grad_D = [[np.convolve(z, rk, mode='valid')
+        self._grad_D = [[fftconvolve(z, rk, mode='valid')
                          for rk in residual]
                         for z in pt[:, ::-1]]
         self._grad_D = np.array(self._grad_D)
@@ -109,5 +110,5 @@ class MultivariateConvolutionalCodingProblem(_Problem):
     def reconstruct(self, pt):
         '''Reconstruct the signal from the given code
         '''
-        return np.sum([[np.convolve(dk, zm) for dk in Dm]
+        return np.sum([[fftconvolve(dk, zm) for dk in Dm]
                        for Dm, zm in zip(self.D, pt)], axis=0)
