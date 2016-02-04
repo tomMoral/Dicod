@@ -5,6 +5,7 @@
 // Date: May 2015
 //
 #include <mpi.h>
+#include "constants.h"
 using namespace MPI;
 
 double* receive_bcast(Intercomm* comm);

@@ -17,9 +17,9 @@ double* receive_bcast(Intercomm* comm){
 }
 
 double* receive_bcast(Intercomm* comm, int &size){
-	comm->Bcast(&size, 1, INT, 0);
+	comm->Bcast(&size, 1, INT, ROOT);
 	double* out = new double[size];
-	comm->Bcast(out, size, DOUBLE, 0);
+	comm->Bcast(out, size, DOUBLE, ROOT);
 	return out;
 }
 
@@ -27,7 +27,7 @@ void confirm_array(Intercomm* comm, double a0, double a1){
 	double confirm[2];
 	confirm[0] = a0;
 	confirm[1] = a1;
-	comm->Gather(confirm, 2, DOUBLE, NULL, 2, DOUBLE, 0);
+	comm->Gather(confirm, 2, DOUBLE, NULL, NULL_SIZE, DOUBLE, ROOT);
 }
 
 int clean_up(Intercomm* comm, bool debug, int rank){
