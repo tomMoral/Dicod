@@ -10,16 +10,19 @@ all: ${EXECS} clean_bld
 c_dicod: c_dicod.cpp dicod.o MPI_op.o fftw_conv.o
 	${MPICC} ${OPTIONFLAGS} -o c_dicod c_dicod.cpp dicod.o MPI_op.o fftw_conv.o ${FFTW}
 
-start_worker: start_worker.cpp worker.o MPI_op.o dicod.o
-	${MPICC} ${OPTIONFLAGS} -o start_worker start_worker.cpp MPI_op.o worker.o dicod.o ${FFTW}
+start_worker: start_worker.cpp worker.o MPI_op.o fftw_conv.o dicod.o dicod2d.o
+	${MPICC} ${OPTIONFLAGS} -o start_worker start_worker.cpp MPI_op.o fftw_conv.o worker.o dicod.o dicod2d.o ${FFTW}
 
-worker.o: worker.cpp worker.h dicod.o
+worker.o: worker.cpp worker.h dicod.o dicod2d.o
 	${MPICC} ${OPTIONFLAGS} -c -o worker.o worker.cpp
 
 dicod.o: dicod.cpp dicod.h  MPI_op.o
 	${MPICC} ${OPTIONFLAGS} -c -o dicod.o dicod.cpp
 
-MPI_op.o: MPI_operations.cpp MPI_operations.h
+dicod2d.o: dicod2d.cpp dicod2d.h constants.h MPI_op.o
+	${MPICC} ${OPTIONFLAGS} -c -o dicod2d.o dicod2d.cpp
+
+MPI_op.o: MPI_operations.cpp MPI_operations.h constants.h
 	${MPICC} -c -o MPI_op.o MPI_operations.cpp
 
 fftw_conv.o: convolution_fftw.c convolution_fftw.h

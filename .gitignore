@@ -3,6 +3,7 @@ __pycache__
 *npy
 *pkl
 *pdf
+.*
 
 # Project config
 *sublime*
