@@ -12,15 +12,15 @@
 
 //Define messages info
 #define STOP 0
-#define PAUSE 1
-#define UP 2
-#define REQ_PROBE 3
-#define REP_PROBE 4
+#define UP 1
+#define REQ_PROBE 2
+#define REP_PROBE 3
 
 #define ALGO_GS 0
 #define ALGO_RANDOM 1
 
 #define HEADER 7
+#define TAG_UP 2742
 
 using namespace MPI;
 using namespace std;
@@ -52,7 +52,7 @@ class DICOD
 		double *alpha_k, *DD, *D;
 		bool *end_neigh, first_probe;
 		double lmbd, tol, t_max;
-		int L_proc, L_proc_S, off, iter;
+		int L_proc, L_proc_S, proc_off, iter;
 		int T, dim, S, K, L, i_max;
 		int world_size, world_rank;
 		int algo, patience;
@@ -76,7 +76,7 @@ class DICOD
 		void _init_algo();
 		void _update_beta(double dz, int k, int t);
 		void process_queue();
-		void send_update(double dz, int ll, int off, int k0);
+		void send_update_msg(int dest, double dz, int k0, int cod_start, int DD_start, int ll);
 		void send_msg(int msg_type, int arg, bool up);
 		void Ibroadcast(int msg_t);
 		void probe_reply();

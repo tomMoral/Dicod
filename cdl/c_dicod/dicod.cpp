@@ -54,6 +54,7 @@ DICOD::DICOD(Intercomm* _parentComm){
 
 	this->receive_task();
 }
+
 // Destructor, delete all arrays
 DICOD::~DICOD(){
 	delete[] D;
@@ -64,10 +65,67 @@ DICOD::~DICOD(){
 	delete[] beta;
 	delete[] end_neigh;
 }
+
+// Handle initial communication
+void DICOD::receive_task(){
+
+	// Update dictionary constants
+	delete[] alpha_k;
+	delete[] DD;
+	delete[] D;
+	alpha_k = receive_bcast(parentComm);
+	DD = receive_bcast(parentComm);
+	D = receive_bcast(parentComm);
+
+	//Receives some constant of the algorithm
+	double* constants = receive_bcast(parentComm);
+	dim = (int) constants[0];				// Dimension of the signal
+	K = (int) constants[1];					// Number of dictionary elements
+	S = (int) constants[2];  				// Size of the dicitonary
+	T = (int) constants[3];					// Size of the signal
+	lmbd = constants[4];					// Regularisation parameter
+	tol = constants[5];						// Convergence tolerance
+	t_max = constants[6];					// Maximum time
+	i_max = (int) constants[7];				// # iterations maximum
+	debug = ((int) constants[8] > 0);		// Debug level
+	logging = ((int) constants[9] == 1);	// Activate the logging
+	use_seg = ((int) constants[10]);		// Use a semgneted update
+	positive = ((int) constants[11] == 1);	// Use to only activate positive updates
+	algo =(int) constants[12];				// Coordinate choice algorihtm
+	patience = (int) constants[13];			// Max number of 0 updates in ALGO_RANDOM
+	delete[] constants;
+
+	if(world_rank == 0 && (DEBUG || debug))
+		cout << "DEBUG - MPI_worker - Start with algoirhtm : " 
+			 << ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
+
+	L = T-S+1;   // Size of the code
+	L_proc = L / world_size + 1;
+	proc_off = world_rank*L_proc;
+	L_proc = min(proc_off+L_proc, L)-proc_off;
+	L_proc_S = L_proc+S-1;
+
+	// Receive the signal to process
+	delete[] sig;
+	sig = new double[L_proc_S*dim];
+	parentComm->Recv(sig, L_proc_S*dim, DOUBLE, 0, 100+world_rank);
+	confirm_array(parentComm, sig[0], sig[L_proc_S*dim-1]);
+
+	// Init algo and wait for everyone
+	_init_algo();
+	parentComm->Barrier();
+
+	chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
+	chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
+  	t_init = time_span.count();
+	t_start = chrono::high_resolution_clock::now();
+}
+
 // Init the algo
 void DICOD::_init_algo(){
 	int k, t, d, tau;
 	double bh;
+	double* src, *kernel;
 
 	// FFT tools
 	Workspace ws;
@@ -82,7 +140,7 @@ void DICOD::_init_algo(){
 	pt = new double[K*L_proc];
 	fill(beta, beta+K*L_proc, 0);
 	fill(pt, pt+K*L_proc, 0);
-	double* src, *kernel = new double[S];
+	kernel = new double[S];
 	for(k = 0; k < K; k++){
 		for(d=0; d < dim; d++){
 			src = &sig[d*L_proc_S];
@@ -112,19 +170,21 @@ void DICOD::_init_algo(){
 	current_seg = 0;
 	seg_dz = 0.;
 	n_seg = use_seg;
-	seg_size = ceil(L_proc / use_seg);
+	seg_size = ceil(L_proc * 1. / use_seg);
 	n_zero = 0;
 
 	end_neigh = new bool[2];
 	end_neigh[0] = (world_rank == 0);
 	end_neigh[1] = (world_rank == world_size-1);
-
 }
+
+// On step of the coordinate descent
 double DICOD::step(){
 	if(pause)
 		this_thread::sleep_for(chrono::milliseconds(PAUSE_DELAY));
+	
 	process_queue();
-	int i, k, t;
+	int i, k, t, k_off;
 	int k0, t0 = -1;
 	double ak, dz, adz = tol;
 	double beta_i, sign_beta_i;
@@ -142,10 +202,8 @@ double DICOD::step(){
 		seg_start = current_seg*seg_size;
 		seg_end = (current_seg+1)*seg_size;
 		current_seg += 1;
-		if(seg_end > L_proc){
+		if(seg_end >= L_proc)
 			current_seg = 0;
-
-		}
 		seg_end = min(seg_end, L_proc);
 	}
 
@@ -153,8 +211,9 @@ double DICOD::step(){
 		//Find argmax of |z_i - z'_i|
 		for(k = 0; k < K; k++){
 			ak = alpha_k[k];
+			k_off = k*L_proc;
 			for (t=seg_start; t < seg_end; t++){
-				i = k*L_proc+t;
+				i = k_off+t;
 				beta_i = -beta[i];
 				sign_beta_i = (beta_i >= 0)?1:-1;
 				if(positive)
@@ -181,6 +240,7 @@ double DICOD::step(){
 		if(positive)
 			sign_beta_i = (beta_i >= 0)?1:0;
 		beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
+
 		if(adz < fabs(beta_i-pt[i])){
 			k0 = k;
 			t0 = t;
@@ -195,7 +255,6 @@ double DICOD::step(){
 		return _return_dz(0.);;
 	}
 	n_zero = 0;
-	cout << "Update t: " << t0 << endl;
 
 	// Else update the point
 	pt[k0*L_proc+t0] -= dz;
@@ -207,7 +266,10 @@ double DICOD::step(){
 	
 		log_t.push_back(seconds);
 		log_dz.push_back(-dz);
-		log_i0.push_back((double) k0*L+off+t0);
+		log_i0.push_back((double) k0*L+proc_off+t0);
+	}
+	else if (use_seg > 1){
+		log_dz.push_back(-dz);
 	}
 	_update_beta(dz, k0, t0);
 	iter += 1;
@@ -215,6 +277,8 @@ double DICOD::step(){
 	return _return_dz(dz);
 }
 
+// Handle the computation to avoid ending computation before convergence in
+// Random algorithm and in segmented iterations
 double DICOD::_return_dz(double dz){
 
 	if(use_seg > 1){
@@ -224,7 +288,7 @@ double DICOD::_return_dz(double dz){
 		list<double>::reverse_iterator rit;
 
 		for(rit = log_dz.rbegin(), k = 0;
-			rit != log_dz.rend() && k != 2*n_seg-n_zero;
+			rit != log_dz.rend() && k < 2*n_seg-n_zero;
 			rit++, k++)
 			if(fabs(*rit) > fabs(dz))
 				dz = *rit;
@@ -235,6 +299,52 @@ double DICOD::_return_dz(double dz){
 		if(patience > n_zero)
 			dz = 2*tol;
 	return dz;
+}
+
+// Update the beta variable after a change of coordinate (k0, t0) of dz
+void DICOD::_update_beta(double dz, int k0, int t0){
+	//Loop variables
+	int k, tau;
+	//Offset variables
+	int beta_off, DD_off, s_DD= 2*S-1;
+	int DD_start, cod_start, ll;
+	//Hold previous beta for the current indice
+	int i0 = k0*L_proc+t0;
+	double p_beta_i0 = beta[i0];
+
+	// Compute offset
+	DD_start = max(0, S-t0-1);
+	cod_start = max(0, t0-S+1);
+	ll = min(L_proc, t0+S) - cod_start;
+
+	// Update local beta coefficients
+	beta_off = cod_start;
+	DD_off   = k0*s_DD + DD_start;
+	for(k=0; k < K; k++){
+		for(tau=0; tau < ll; tau++)
+			beta[beta_off+tau] -= DD[DD_off+tau]*dz;
+		beta_off += L_proc;
+		DD_off   += K*s_DD;
+	}
+	beta[i0] = p_beta_i0;
+	if (DD_start > 0 && world_rank > 0)
+		send_update_msg(world_rank-1, dz, k0, -DD_start, 0, DD_start);
+	else if (t0 > L_proc-S && world_rank < world_size-1)
+		send_update_msg(world_rank+1, dz, k0, 0, ll, s_DD-ll);
+}
+void DICOD::send_update_msg(int dest, double dz, int k0, 
+							int cod_start, int DD_start, int ll)
+{
+	double* msg = new double[HEADER];
+	msg[0] = (double) UP;
+	msg[1] = dz;
+	msg[2] = (double) k0;
+	msg[3] = (double) cod_start;
+	msg[4] = (double) DD_start;
+	msg[5] = (double) ll;
+	COMM_WORLD.Isend(msg, HEADER, DOUBLE,
+					 dest, TAG_UP);
+	messages.push_back(msg);
 }
 
 bool DICOD::stop(double dz){
@@ -287,31 +397,7 @@ bool DICOD::stop(double dz){
 	}
 	return _stop;
 }
-void DICOD::_update_beta(double dz, int k0, int t0){
-	//Loop variables
-	int k, tau;
-	int kk, dk, s_DD= 2*S-1;
-	//Offset variables
-	int off, start, ll;
-	//Hold previous beta for the current indice
-	int i0 = k0*L_proc+t0;
-	double p_beta_i0 = beta[i0];
-	off = max(0, S-t0-1);
-	start = max(0, t0-S+1);
-	ll = min(L_proc,t0+S)-start;
-	for(k=0; k < K; k++){
-		kk = k*L_proc;
-		dk = k*K*s_DD+k0*s_DD;
-		for(tau=0; tau < ll; tau++){
-			beta[kk+start+tau] -= DD[dk+off+tau]*dz;
-		}
-	}
-	beta[i0] = p_beta_i0;
-	if((off > 0 && world_rank != 0) ||
-	   		(t0+S > L_proc && world_rank != world_size-1)){
-		send_update(dz, ll, off, k0);
-	}
-}
+
 void DICOD::reduce_pt(){
 	double cost = compute_cost();
 	parentComm->Barrier();
@@ -336,10 +422,10 @@ void DICOD::reduce_pt(){
 		delete[] _log;
 	}
 }
+
 double DICOD::compute_cost(){
 	Workspace ws;
 	int s, d, k;
-	int L_rec = L_proc_S;
 	init_workspace(ws, LINEAR_FULL, 1, L_proc, 1, S);
 	double *msg = new double[(S-1)*dim], *msg_in = new double[(S-1)*dim];
 	double *src, *kernel, *rec = new double[dim*L_proc_S];
@@ -358,7 +444,6 @@ double DICOD::compute_cost(){
 	if(world_rank != world_size-1){
 
 		COMM_WORLD.Isend(msg, dim*(S-1), DOUBLE, world_rank+1, 27);
-		L_rec = L_proc;
 	}
 	if(world_rank != 0){
 		COMM_WORLD.Recv(msg_in, dim*(S-1), DOUBLE, world_rank-1, 27);
@@ -382,17 +467,6 @@ double DICOD::compute_cost(){
 	delete[] rec;
 	return cost;
 }
-
-// bool DICOD::check_dest(int dest){
-// 	if(dest > -1 && dest < world_size){
-// 		COMM_WORLD.Isend(msg, HEADER, DOUBLE,
-// 						 dest, 34+(1-2*src));
-// 		messages.push_back(msg);
-// 	}
-// 	else{
-// 		cout << "ERROR - MPI_worker - tried to send a message to" << dest << endl;
-// 	}
-// }
 
 void DICOD::end(){
 	if((debug || DEBUG) && world_rank == 0)
@@ -430,13 +504,16 @@ void DICOD::end(){
 		cout << "DEBUG - MPI_worker - Clean operation ok" << endl;
 	parentComm->Barrier();
 }
+
 // Process the message queue
 void DICOD::process_queue(){
 	Status s;
 	int size_msg, src, tag;
 	double* msg;
-	int from, off, ll, k, tau, i_try, l_msg;
+	int ll, k, tau, i_try, l_msg;
+	int DD_off, beta_off, k0, DD_start, cod_start, s_DD;
 	int compt = 0;
+	double dz;
 	while(COMM_WORLD.Iprobe(ANY_SOURCE, ANY_TAG, s)&&(compt < 10000)){
 		compt += 1;
 		size_msg = s.Get_count(DOUBLE);
@@ -447,9 +524,6 @@ void DICOD::process_queue(){
 		switch((int) msg[0]){
 			case STOP:
 				go = false;
-				break;
-			case PAUSE:
-				from = (int) msg[1];
 				break;
 			case REQ_PROBE:
 				probe_try.push_back((int) msg[1]);
@@ -466,19 +540,18 @@ void DICOD::process_queue(){
 				}
 				break;
 			case UP:
-				int dk, k0, start_DD, s_DD = 2*S-1;
-				double dz;
-				from = (int) msg[1];
-				off = (L_proc + (int) msg[2])%L_proc;
-				ll = (int) msg[3];
-				k0 = (int) msg[4];
-				start_DD = (int) msg[5];
-				dz = msg[6];
+				dz = msg[1];
+				k0 = (int) msg[2];
+				cod_start = (L_proc + (int) msg[3])%L_proc;
+				DD_start = (int) msg[4];
+				ll = (int) msg[5];
+				s_DD = 2*S-1;
+
 				for(k=0; k<K; k++){
-					dk = k*K*s_DD + k0*s_DD; 
-					for(tau=0; tau< ll; tau ++){
-						beta[k*L_proc+off+tau] -= dz*DD[dk+start_DD+tau];
-					}
+					beta_off = k*L_proc + cod_start;
+					DD_off   = k*K*s_DD + k0*s_DD + DD_start;
+					for(tau=0; tau< ll; tau ++)
+						beta[beta_off+tau] -= dz*DD[DD_off+tau];
 				}
 				pause = false;
 				runtime = 0;
@@ -520,41 +593,6 @@ void DICOD::probe_reply(){
 	messages.push_back(msg);
 	probe_try.clear();
 }
-void DICOD::send_update(double dz, int ll, int off, int k0){
-
-	int src, start, l_msg, start_DD;
-	int k, tau, dk, s_DD = 2*S-1;
-	if(off > 0){
-		src = 1;
-		start = -off;
-		start_DD = 0;
-		l_msg = off;
-	}
-	else{
-		src = 0;
-		start = 0;
-		start_DD = ll;
-		l_msg = s_DD-ll;
-	}
-	double* msg = new double[HEADER];
-	msg[0] = (double) UP;
-	msg[1] = (double) src;
-	msg[2] = (double) start;
-	msg[3] = (double) l_msg;
-	msg[4] = (double) k0;
-	msg[5] = (double) start_DD;
-	msg[6] = dz;
-	int dest = world_rank+(1-2*src);
-	if(dest > -1 && dest < world_size){
-		COMM_WORLD.Isend(msg, HEADER, DOUBLE,
-						 dest, 34+(1-2*src));
-		messages.push_back(msg);
-	}
-	else{
-		cout << "ERROR - MPI_worker" << world_rank 
-			 << " - tried to send a message to" << dest << endl;
-	}
-}
 void DICOD::send_msg(int msg_type, int arg, bool up){
 	int sz = 2;
 	double* msg = new double[sz];
@@ -570,57 +608,4 @@ void DICOD::send_msg(int msg_type, int arg, bool up){
 		cout << "ERROR - MPI_worker" << world_rank 
 			 << " - tried to send a message to" << dest << endl;
 	}
-}
-void DICOD::receive_task(){
-
-	// Update dictionary constants
-	delete[] alpha_k;
-	delete[] DD;
-	delete[] D;
-	alpha_k = receive_bcast(parentComm);
-	DD = receive_bcast(parentComm);
-	D = receive_bcast(parentComm);
-
-	//Receives some constant of the algorithm
-	double* constants = receive_bcast(parentComm);
-	dim = (int) constants[0];				// Dimension of the signal
-	K = (int) constants[1];					// Number of dictionary elements
-	S = (int) constants[2];  				// Size of the dicitonary
-	T = (int) constants[3];					// Size of the signal
-	lmbd = constants[4];					// Regularisation parameter
-	tol = constants[5];						// Convergence tolerance
-	t_max = constants[6];					// Maximum time
-	i_max = (int) constants[7];				// # iterations maximum
-	debug = ((int) constants[8] > 0);		// Debug level
-	logging = ((int) constants[9] == 1);	// Activate the logging
-	use_seg = ((int) constants[10]);		// Use a semgneted update
-	positive = ((int) constants[11] == 1);	// Use to only activate positive updates
-	algo =(int) constants[12];				// Coordinate choice algorihtm
-	patience = (int) constants[13];			// Max number of 0 updates in ALGO_RANDOM
-	delete[] constants;
-
-	if(world_rank == 0 && (DEBUG || debug))
-		cout << "DEBUG - MPI_worker - Start with algoirhtm : " 
-			 << ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
-
-	L = T-S+1;   // Size of the code
-	L_proc = L / world_size + 1;
-	off = world_rank*L_proc;
-	L_proc = min(off+L_proc, L)-off;
-	L_proc_S = L_proc+S-1;
-
-	// Receive the signal to process
-	delete[] sig;
-	sig = new double[L_proc_S*dim];
-	parentComm->Recv(sig, L_proc_S*dim, DOUBLE, 0, 100+world_rank);
-	confirm_array(parentComm, sig[0], sig[L_proc_S*dim-1]);
-
-	// Init algo and wait for everyone
-	_init_algo();
-	parentComm->Barrier();
-
-	chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
-	chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
-  	t_init = time_span.count();
-	t_start = chrono::high_resolution_clock::now();
 }
