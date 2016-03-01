@@ -61,6 +61,7 @@ class DICOD2D
 		int h_proc_S, w_proc_S;			// Dimensions of the signal
 		int h_off, w_off;				// Offsets of the processor
 		int h_rank, w_rank, world_rank;	// Position on the processor grid
+		int h_seg, w_seg;				// Dimensions of the segments
 
 		// Running properties
 		int iter;						// Number of iteration
@@ -70,7 +71,8 @@ class DICOD2D
 		time_point t_start;				// Hold the starting time of the algorithm to compute the runtime
 		double t_init, runtime;			// Runtime for initialization & convergence
 		bool pause, go;					// State of the processor
-		int seg_size, current_seg;		// Size of each segment for the segmented algo and current segment index
+		int seg_size;					// Size of each segment for the segmented algo and current segment index
+		int cur_h_seg, cur_w_seg;
 
 
 		mt19937 rng;					// Random number generator for the random cooridnate choice
@@ -86,8 +88,8 @@ class DICOD2D
     	//Private Methods
 		void _rcv_task();
 		void _init_algo();
-		double _choose_coord_GS(int, int, int&, int&);
-		double _choose_coord_Rand(int, int, int&, int&);
+		double _choose_coord_GS(int, int, int, int, int&, int&, int&);
+		double _choose_coord_Rand(int, int, int, int, int&, int&, int&);
     	double _return_dz(double dz);
 		double compute_cost();
 		void _compute_AB(double*, double*);

@@ -16,9 +16,11 @@
 using namespace FFTW_Convolution;
 
 
-#define PAUSE_DELAY 3			// sleep time for paused process in ms
-#define PROBE_MSG_UP_START 0.05		// smallest time between probe for end
-#define PROBE_MAX 0.4			// largest time between probes
+#define PAUSE_DELAY 		3		// sleep time for paused process in ms
+#define TEST_DELAY 			10		// delay beteen probe when timeout/max
+									// iter is reached
+#define PROBE_MSG_UP_START 	0.05	// smallest time between probe for end
+#define PROBE_MAX 			0.4		// largest time between probes
 
 #define DEBUG false
 
@@ -34,6 +36,7 @@ void solve_DICOD(Intercomm *parentComm){
 	// send back
 	dcp->send_result();
 	dcp->end();
+	delete dcp;
 }
 
 //Object to handle computations
@@ -139,7 +142,6 @@ void DICOD2D::_rcv_task(){
 
 	if(algo == ALGO_GS)
 		patience = 1;
-	patience *= n_seg;
 
 	if(world_rank == 0 && (DEBUG || debug))
 		cout << "DEBUG - MPI_Workers- Start with algorithm : "
@@ -152,14 +154,17 @@ void DICOD2D::_rcv_task(){
 
 	// sizes of the code computed by the processor
 	h_proc = h_cod / h_world;
-	w_proc = w_cod / w_world + 1;
+	w_proc = w_cod / w_world;
 
 	// offset of the position of the processor
 	h_off = h_rank*h_proc;
 	w_off = w_rank*w_proc;
 
-	h_proc = min(h_off+h_proc, h_cod)-h_off;
-	w_proc = min(w_off+w_proc, w_cod)-w_off;
+	if(h_rank == h_world-1)
+		h_proc = h_cod-h_off;
+	if(w_rank == w_world - 1)
+		w_proc = w_cod-w_off;
+	//w_proc = min(w_off+w_proc, w_cod)-w_off;
 	L_proc = h_proc*w_proc;
 
 	// size of the signal received by the proc
@@ -187,6 +192,7 @@ void DICOD2D::_init_algo(){
 	init_workspace(ws, LINEAR_VALID, h_proc_S, w_proc_S, h_dic, w_dic);
 
  	// the main loop
+
 
 	//Initialize beta and pt
 	delete[] beta;
@@ -221,8 +227,30 @@ void DICOD2D::_init_algo(){
 	log_t.clear();
 
 	// init the segment choosing and stoping
+	cur_h_seg = 0;
+	cur_w_seg = 0;
 	current_seg = 0;
-	seg_size = ceil(L_proc * 1. / n_seg);
+
+	int seg = 1;
+	if(w_proc > n_seg*w_dic){
+		w_seg = ceil(w_proc * 1. / n_seg);
+		seg *= n_seg;
+	}
+	else
+		w_seg = w_proc;
+	if(h_proc > n_seg*h_dic){
+		h_seg = ceil(h_proc * 1. / n_seg);
+		seg *= n_seg;
+	}
+	else
+		h_seg = h_proc;
+	n_seg = seg;
+	if(world_rank == 0 && (debug || DEBUG))
+		cout << "DEBUG - MPI_Workers - Number of segment: " << n_seg
+			 << " of size " << h_seg << ", " << w_seg << endl;
+
+	patience *= n_seg;
+	prev_i0 = new int[n_seg];
 	n_zero = 0;
 	n_barrier = 0;
 
@@ -238,24 +266,31 @@ void DICOD2D::_init_algo(){
 }
 
 // choose coordinate to update with Gauss-southwell rule
-double DICOD2D::_choose_coord_GS(int seg_start, int seg_end,
-								 int &k0, int &t0)
+double DICOD2D::_choose_coord_GS(int seg_h_start, int seg_h_end,
+								 int seg_w_start, int seg_w_end,
+								 int &k0, int &h0, int& w0)
 {
 	//Find argmax of |z_i - z'_i|
-	int k, k_off = 0, t, i;
+	int k, k_off = 0, h, w, i, i0;
 	double beta_i, sign_beta_i, ak, dz, adz = tol;
 	for(k = 0; k < K; k++){
 		ak = alpha_k[k];
-		for (t=seg_start; t < seg_end; t++){
-			i = k_off+t;
-			beta_i = -beta[i];
-			sign_beta_i = (beta_i >= 0)?1:((positive)?0:-1);
-			beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
-			if(adz < fabs(beta_i-pt[i])){
-				k0 = k;
-				t0 = t;
-				dz = pt[i]-beta_i;
-				adz = fabs(dz);
+		for (h=seg_h_start; h < seg_h_end; h++){
+			for(w=seg_w_start; w < seg_w_end; w ++){
+				i = k_off + h*w_proc + w;
+				beta_i = -beta[i];
+				sign_beta_i = (beta_i >= 0)?1:((positive)?0:-1);
+				beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
+				if(adz < fabs(beta_i-pt[i]) )//&&
+					//i-k_off != prev_i0[current_seg])
+				{
+					k0 = k;
+					h0 = h;
+					w0 = w;
+					i0 = i;
+					dz = pt[i]-beta_i;
+					adz = fabs(dz);
+				}
 			}
 		}
 		k_off += L_proc;
@@ -264,21 +299,25 @@ double DICOD2D::_choose_coord_GS(int seg_start, int seg_end,
 }
 
 // choose coordinate to update with Gauss-southwell rule
-double DICOD2D::_choose_coord_Rand(int seg_start, int seg_end,
-								   int &k0, int &t0)
+double DICOD2D::_choose_coord_Rand(int seg_h_start, int seg_h_end,
+								   int seg_w_start, int seg_w_end,
+								   int &k0, int &h0, int& w0)
 {
 
-	int i, k, t;
-	double beta_i, sign_beta_i, ak, dz;
-	uniform_int_distribution<> dis_k(0, K-1), dis_t(seg_start, seg_end-1);
+	int i, k, h, w, i0;
+	double beta_i, sign_beta_i, ak, dz = tol;
+	uniform_int_distribution<> dis_k(0, K-1),
+							   dis_h(seg_h_start, seg_h_end-1),
+							   dis_w(seg_w_start, seg_w_end-1);
 
 	// draw a random coordinate uniformely
-	t = dis_t(rng);
 	k  = dis_k(rng);
+	h = dis_h(rng);
+	w = dis_w(rng);
 
 	// compute the update
 	ak = alpha_k[k];
-	i = k*L_proc+t;
+	i = k*L_proc + h*w_proc + w;
 	beta_i = -beta[i];
 	sign_beta_i = (beta_i >= 0)?1:-1;
 	if(positive)
@@ -287,7 +326,9 @@ double DICOD2D::_choose_coord_Rand(int seg_start, int seg_end,
 
 	if(tol < fabs(beta_i-pt[i])){
 		k0 = k;
-		t0 = t;
+		h0 = h;
+		w0 = w;
+		i0 = i;
 		dz = pt[i]-beta_i;
 	}
 	return dz;
@@ -300,7 +341,7 @@ double DICOD2D::step(){
 
 	process_queue();
 	//int i, k, t, k_off;
-	int k0, w0, h0, t0 = -1;
+	int k0 = -1, w0, h0;
 	double dz, adz;
 	if(pause){
 		if(probe_try.size()>0)
@@ -311,36 +352,47 @@ double DICOD2D::step(){
 
 	// compute the current segment if we use the
 	// segmented version of the algorithm
-	int seg_start = 0;
-	int seg_end = L_proc;
+	int seg_h_start = 0, seg_w_start = 0;
+	int seg_h_end = h_proc, seg_w_end = w_proc;
 	if(n_seg > 1){
-		seg_start = current_seg*seg_size;
-		seg_end = (current_seg+1)*seg_size;
-		current_seg += 1;
-		if(seg_end >= L_proc)
-			current_seg = 0;
-		seg_end = min(seg_end, L_proc);
+		seg_h_start = cur_h_seg*h_seg;
+		seg_w_start = cur_w_seg*w_seg;
+		seg_h_end = (cur_h_seg+1)*h_seg;
+		seg_w_end = (cur_w_seg+1)*w_seg;
+		cur_w_seg++;
+		current_seg++;
+		if(seg_w_end >= w_proc){
+			cur_w_seg = 0;
+			cur_h_seg++;
+			if(seg_h_end >= h_proc){
+				cur_h_seg = 0;
+				current_seg = 0;
+			}
+		}
+		seg_h_end = min(seg_h_end, h_proc);
+		seg_w_end = min(seg_w_end, w_proc);
 	}
 
 	// choose a coordinate to update
 	if(algo == ALGO_GS)
-		dz = _choose_coord_GS(seg_start, seg_end, k0, t0);
+		dz = _choose_coord_GS(seg_h_start, seg_h_end, seg_w_start, seg_w_end,
+							  k0, h0, w0);
 	else if(algo == ALGO_RANDOM)
-		dz = _choose_coord_Rand(seg_start, seg_end, k0, t0);
+		dz = _choose_coord_Rand(seg_h_start, seg_h_end, seg_w_start, seg_w_end,
+							    k0, h0, w0);
+
 	adz = fabs(dz);
 
 	// if the update is too small, do not update and return a 0 update
 	if(adz <= tol)
-		return _return_dz(adz);;
+		return _return_dz(adz);
 
 	// else perform the update and reset the consecutive zero counter
-	pt[k0*L_proc+t0] -= dz;
+	pt[k0*L_proc+h0*w_proc+w0] -= dz;
 	iter += 1;
 	n_zero = 0;
 
 	// log the update if the logging is active
-	h0 = t0 / w_proc;
-	w0 = t0 % w_proc;
 	if(logging){
 	  	double seconds = _get_time_span();
 
@@ -350,7 +402,11 @@ double DICOD2D::step(){
 	}
 
 	// update beta
-	_update_beta(dz, k0, t0, h0, w0);
+	_update_beta(dz, k0, h0, w0);
+
+	if(iter % (i_max/10) == 0 && (debug || DEBUG) && world_rank == 0)
+		cout << "DEBUG - MPI_Workers - sparse coding " << iter*100/i_max
+	         << "\x25" << endl;
 
 	return _return_dz(adz);
 }
@@ -366,7 +422,7 @@ double DICOD2D::_return_dz(double dz){
 }
 
 // update the beta variable after a change of coordinate (k0, t0) of dz
-void DICOD2D::_update_beta(double dz, int k0, int t0, int h0, int w0){
+void DICOD2D::_update_beta(double dz, int k0, int h0, int w0){
 	//Loop variables
 	int k, h_tau, w_tau;
 
@@ -376,7 +432,7 @@ void DICOD2D::_update_beta(double dz, int k0, int t0, int h0, int w0){
 	int h_DD_start, w_DD_start, h_cod_start, w_cod_start, h_ll, w_ll;
 
 	//Hold previous beta for the current indice
-	int i0 = k0*L_proc+t0;
+	int i0 = k0*L_proc + h0*w_proc + w0;
 	double p_beta_i = beta[i0];
 
 	// compute offsets
@@ -485,6 +541,7 @@ void DICOD2D::send_update_msg(int dest, double dz, int k0,
 bool DICOD2D::stop(double dz){
 	// compute the current runtime
 	double seconds = _get_time_span();
+	double *msg = NULL;
 
   	// if we have reach an optimal solution, stop the algorithm
 	if(!go){

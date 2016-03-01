@@ -44,12 +44,12 @@ class DICOD2D(_GradientDescent):
 
     """
 
-    def __init__(self, pb, n_jobs=1, w_world=1, use_seg=1, hostfile=None,
+    def __init__(self, n_jobs=1, w_world=1, use_seg=1, hostfile=None,
                  logging=False, debug=0, positive=False,
                  algorithm=ALGO_GS, patience=1000, **kwargs):
         log.set_level(max(3-debug, 1)*10)
         debug = max(debug-1, 0)
-        super(DICOD2D, self).__init__(pb, debug=debug, **kwargs)
+        super(DICOD2D, self).__init__(None, debug=debug, **kwargs)
         self.debug = debug
         self.n_jobs = n_jobs
         self.hostfile = hostfile
@@ -133,13 +133,17 @@ class DICOD2D(_GradientDescent):
         # Share the work between the processes
         sig = np.array(pb.x, dtype='d')
         h_proc = h_cod // h_world
-        w_proc = w_cod // w_world + 1
+        w_proc = w_cod // w_world
         expect = []
         for i in range(h_world):
+            h_end = (i+1)*h_proc+h_dic-1
+            if i == h_world - 1:
+                h_end = h_sig
             for j in range(w_world):
                 dest = i*w_world+j
-                h_end = min(h_sig, (i+1)*h_proc+h_dic-1)
-                w_end = min(w_sig, (j+1)*w_proc+w_dic-1)
+                w_end = (j+1)*w_proc+w_dic-1
+                if j == w_world - 1:
+                    w_end = w_sig
                 self.comm.Send([sig[:, i*h_proc:h_end,
                                     j*w_proc:w_end].flatten(),
                                 MPI.DOUBLE], dest, tag=TAG_ROOT+dest)
@@ -167,7 +171,7 @@ class DICOD2D(_GradientDescent):
         self.comm.Disconnect()
 
     def _gather(self):
-        K = self.K
+        K, d = self.K, self.d
         h_cod, h_proc = self.h_cod, self.h_proc
         w_cod, w_proc = self.w_cod, self.w_proc
         pt = np.empty((K, h_cod, w_cod), 'd')
@@ -176,15 +180,19 @@ class DICOD2D(_GradientDescent):
         self.t = time()-self.t_start
 
         for i in range(self.h_world):
+            h_proc_i = h_proc
+            h_off = i*h_proc
+            if i == self.h_world-1:
+                h_proc_i = h_cod-h_off
             for j in range(self.w_world):
                 src = i*self.w_world+j
-                h_off = i*h_proc
+                w_proc_i = w_proc
                 w_off = j*w_proc
-                h_proc_i = min(h_off+h_proc, h_cod)-h_off
-                w_proc_i = min(w_off+w_proc, w_cod)-w_off
+                if j == self.w_world - 1:
+                    w_proc_i = w_cod-j*w_proc
                 gpt = np.empty(K*h_proc_i*w_proc_i, 'd')
                 self.comm.Recv([gpt, MPI.DOUBLE], src, tag=TAG_ROOT+src)
-                pt[:, i*h_proc:(i+1)*h_proc, j*w_proc:(j+1)*w_proc] = \
+                pt[:, h_off:h_off+h_proc_i, w_off:w_off+w_proc_i] = \
                     gpt.reshape((K, h_proc_i, w_proc_i))
 
         S = self.h_dic*self.w_dic
@@ -234,32 +242,34 @@ class DICOD2D(_GradientDescent):
     def _log(self, iterations, t_end):
         pb, L = self.pb, self.L
         updates = []
-        updates_t = []
         for i, it in enumerate(iterations):
             _log = np.empty(3*it)
             self.comm.Recv([_log, MPI.DOUBLE], i, tag=TAG_ROOT+i)
-            updates += [(round(_log[3*i]), _log[3*i+2]) for i in range(it)]
-            updates_t += [_log[3*i+1] for i in range(it)]
+            updates += [(_log[3*j+1], int(_log[3*j]), _log[3*j+2], i)
+                        for j in range(it)]
+        updates = np.array(updates, dtype=[('t', np.float64),
+                                           ('i', np.int64),
+                                           ('z', np.float64),
+                                           ('rank', np.int64)])
 
-        i0 = np.argsort(updates_t)
+        ordered_t = np.argsort(updates)
         next_log = 1
+        self.log_update = updates[ordered_t]
+        return
         pb.reset()
         log.debug('Start logging cost')
         t = self.t_init
-        for it, i in enumerate(i0):
+        for it, i in enumerate(ordered_t):
             if it+1 >= next_log:
                 log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
                             iteration=it+1, fun=pb.cost,
                             graph_cost=self.graph_cost, time=t)
                 next_log = self.log_rate(it+1)
-            j, du = updates[i]
-            t = updates_t[i]+self.t_init
-            t0 = j % L
-            pb.pt[j // L, t0 // self.w_cod, t0 % self.w_cod] += du
+            t, i0, dz = updates[i]
+            pb.pt[i0 // L, (i0 % L) // self.w_cod, i0 % self.w_cod] += dz
         log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
                     iteration=it, fun=pb.cost,
                     graph_cost=self.graph_cost, time=self.runtime+self.t_init)
-        self.log_update = (updates_t, updates)
         log.debug('End logging cost')
 
     def gather_AB(self):
