@@ -2,6 +2,7 @@ import numpy as np
 from scipy.signal import fftconvolve
 
 from toolbox.optim.problem import _Problem
+from joblib import Parallel, delayed
 
 
 class MultivariateConvolutionalCodingProblem2D(_Problem):
@@ -79,16 +80,19 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
             pt = self.pt
         return self.Er(pt) + self.lmbd*np.sum(abs(pt))/np.prod(pt.shape[-2:])
 
-    def grad(self, pt=None):
+    def grad(self, pt=None, D=None, x=None):
         '''Compute the gradient at the given point
         '''
-        if pt is None:
-            pt = self.pt
-        residual = self.reconstruct(pt) - self.x
-        _grad = np.mean([[fftconvolve(dk, rk, mode='valid')
-                         for dk, rk in zip(Dm, residual)]
-                        for Dm in self.D[:, :, ::-1]], axis=1)
-        return _grad
+        # Get correct arguments
+        x = self._get_args(x, self.x)
+        pt = self._get_args(pt, self.pt)
+        D = self._get_args(D, self.D)
+        residual = self.reconstruct(pt) - x
+        conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
+        _grad = Parallel(n_jobs=-1)(
+            [conv(residual, Dm, mode='valid') for Dm in D[:, :, ::-1]]
+        )
+        return np.mean(_grad, axis=1)
 
     def prox(self, pt=None, lmbd=None):
         '''Compute the proximal operator at the given point
@@ -103,16 +107,53 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         else:
             return np.sign(pt)*np.maximum(abs(pt)-lmbd, 0)
 
-    def grad_D(self, pt):
-        residual = self.reconstruct(pt) - self.x
-        self._grad_D = [[fftconvolve(z, rk, mode='valid')
-                         for rk in residual]
-                        for z in pt[:, ::-1]]
+    def grad_D(self, x=None, pt=None, D=None):
+        # Get correct arguments
+        x = self._get_args(x, self.x)
+        pt = self._get_args(pt, self.pt)
+        D = self._get_args(D, self.D)
+
+        residual = self.reconstruct(pt=pt, D=D) - x
+        conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
+        self._grad_D = Parallel(n_jobs=-1)([
+            conv(residual, z, mode='valid')
+            for z in pt[:, ::-1, ::-1]]
+        )
         self._grad_D = np.array(self._grad_D)
         return self._grad_D
 
-    def reconstruct(self, pt):
+    @classmethod
+    def multi_conv(cls, z, D, mode):
+        if len(z.nonzero()[0]) == 0 or len(D.nonzero()[0]) == 0:
+            if D.ndim == 3:
+                K, h_dic, w_dic = D.shape
+                h_sig, w_sig = z.shape[-2:]
+            else:
+                h_dic, w_dic = D.shape[-2:]
+                K, h_sig, w_sig = z.shape
+            if mode == 'valid':
+                return np.zeros((K, h_sig-h_dic+1, w_sig-w_dic+1))
+            else:
+                return np.zeros((K, h_sig+h_dic-1, w_sig+w_dic-1))
+
+        if D.ndim == 3 and z.ndim == 3:
+            return [fftconvolve(zk, dk, mode=mode) for zk, dk in zip(z, D)]
+        elif D.ndim == 3:
+            return [fftconvolve(z, dk, mode=mode) for dk in D]
+        return [fftconvolve(zk, D, mode=mode) for zk in z]
+
+    def reconstruct(self, pt=None, D=None):
         '''Reconstruct the signal from the given code
         '''
-        return np.sum([[fftconvolve(dk, zm) for dk in Dm]
-                       for Dm, zm in zip(self.D, pt)], axis=0)
+        pt = self._get_args(pt, self.pt)
+        D = self._get_args(D, self.D)
+        conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
+        rec = Parallel(n_jobs=-1)([conv(zm, Dm, mode='full')
+                                   for Dm, zm in zip(D, pt)])
+        return np.sum(rec, axis=0)
+
+    def _get_args(self, arg, default):
+        if arg is None:
+            return default
+        return arg
+
