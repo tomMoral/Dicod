@@ -72,7 +72,9 @@ class DICOD2D
 		double t_init, runtime;			// Runtime for initialization & convergence
 		bool pause, go;					// State of the processor
 		int seg_size;					// Size of each segment for the segmented algo and current segment index
-		int cur_h_seg, cur_w_seg;
+		int cur_h_seg, cur_w_seg, current_seg;
+										// Variables to hold the current optimized segment
+
 
 
 		mt19937 rng;					// Random number generator for the random cooridnate choice
@@ -96,7 +98,7 @@ class DICOD2D
 		void _update_beta(double dz, int k, int h, int w);
 		void process_queue();
 		void _signal_end();
-		void _send_msg(int dest, int msg_type, int arg = 0);
+		void _send_msg(int dest, int msg_type, int arg = 0, bool wait = false);
 		void Ibroadcast(int msg_t);
 		void probe_reply();
 		double _get_time_span();

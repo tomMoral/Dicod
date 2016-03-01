@@ -176,17 +176,10 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         zz[:K, h_dic-1:-h_dic+1, w_dic-1:-w_dic+1] = pt
         zz[K:, :h_sig, :w_sig] = x
         conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
-        AA = Parallel(n_jobs=-1)([conv(zz, ptk, mode='valid')
-                                  for ptk in pt[:, ::-1, ::-1]])
-        AA = np.array(AA)
-        self.AA = AA
-
-        A = Parallel(n_jobs=-1)(
-            conv(z_k, pt[:, ::-1, ::-1], mode='valid') for z_k in z)
+        A = Parallel(n_jobs=-1)([conv(zz, ptk, mode='valid')
+                                 for ptk in pt[:, ::-1, ::-1]])
         A = np.array(A)
-        A, B = A[:K], A[K:]
-        A = A.swapaxes(0, 1)
-        B = B.swapaxes(0, 1)
+        self.A = A[:, :K]
+        self.B = A[:, K:, :h_dic, :w_dic]
 
-        assert np.allclose(B, AA[:, K:, :h_dic, :w_dic])
-        return A, B
+        return self.A, self.B

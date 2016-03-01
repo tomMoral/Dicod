@@ -93,7 +93,7 @@ void DICOD2D::start(){
 	// get a timer to evaluate the performances
 	t_init = _get_time_span();
   	if((debug || DEBUG) && world_rank == 0)
-  		cout << "DEBUG - MPI_Workers- End initialization in " << t_init << endl;
+  		cout << "DEBUG - MPI_Workers - End initialization in " << t_init << endl;
 	t_start = chrono::high_resolution_clock::now();
 }
 
@@ -144,7 +144,7 @@ void DICOD2D::_rcv_task(){
 		patience = 1;
 
 	if(world_rank == 0 && (DEBUG || debug))
-		cout << "DEBUG - MPI_Workers- Start with algorithm : "
+		cout << "DEBUG - MPI_Workers - Start with algorithm : "
 			 << ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
 
 	// total sizes of the code
@@ -295,6 +295,11 @@ double DICOD2D::_choose_coord_GS(int seg_h_start, int seg_h_end,
 		}
 		k_off += L_proc;
 	}
+	if(!isnormal(adz)){
+		cout << "Not normal dz : " << dz  << " ak " << alpha_k[k0]
+			 << "  beta_i " << beta[i0] <<  endl;
+		dz = 0;
+	}
 	return dz;
 }
 
@@ -330,6 +335,11 @@ double DICOD2D::_choose_coord_Rand(int seg_h_start, int seg_h_end,
 		w0 = w;
 		i0 = i;
 		dz = pt[i]-beta_i;
+	}
+	if(!isnormal(dz)){
+		cout << "Not normal dz : " << dz  << " ak " << alpha_k[k0]
+			 << "  beta_i " << beta[i0] <<  endl;
+		dz = 0;
 	}
 	return dz;
 }
@@ -554,9 +564,9 @@ bool DICOD2D::stop(double dz){
 
 	// print debug message to notify that we reach a timeout or the maximal iteration
 	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
-		cout << "DEBUG - MPI_Workers- Reach timeout" << endl;
+		cout << "DEBUG - MPI_Workers - Reach timeout" << endl;
 	if((debug || DEBUG) && iter >= i_max && world_rank == 0)
-		cout << "DEBUG - MPI_Workers- Reach max iteration" << endl;
+		cout << "DEBUG - MPI_Workers - Reach max iteration" << endl;
 
 	// if we have reach an optimal solution within the process
 	// enter pause state if the other processes are still running
@@ -573,7 +583,6 @@ bool DICOD2D::stop(double dz){
 			}
 			// else if it just enter the pause state, initiate the probe process
 			if(!pause){
-				cout << "DEBUG - MPI_Worker" << world_rank << "Enter pause" << endl;
 				up_probe = PROBE_MSG_UP_START;
 				next_probe = seconds;
 				pause = true;
@@ -588,8 +597,6 @@ bool DICOD2D::stop(double dz){
 		}
 		// for the other process
 		else if(!pause){
-			if(debug || DEBUG)
-			cout << "DEBUG - MPI_Worker" << world_rank << " - Enter pause" << endl;
 			pause = true;
 			runtime = seconds;
 		}
@@ -599,12 +606,8 @@ bool DICOD2D::stop(double dz){
 	_stop |= (seconds >= t_max);
 	if(_stop){
 		runtime = seconds;
-		cout << "DEBUG - MPI_Worker" << world_rank << " - Enter barrier as it "
-			 << "reached t_max/i_max" << endl;
-		double *msg = NULL;
-		if(world_rank != 0){
-			_send_msg(0, MSG_HIT_BARRIER);
-		}
+		if(world_rank != 0)
+			_send_msg(ROOT, MSG_HIT_BARRIER);
 		else{
 			up_probe = PROBE_MSG_UP_START;
 			next_probe = seconds;
@@ -612,9 +615,10 @@ bool DICOD2D::stop(double dz){
 				 << "or paused" << endl;
 			while(go && n_barrier < world_size-1){
 				pause = true;
-				this_thread::sleep_for(chrono::milliseconds(PAUSE_DELAY));
+				this_thread::sleep_for(chrono::milliseconds(TEST_DELAY));
 				seconds = _get_time_span();
 				if(next_probe <= seconds){
+
 					Ibroadcast(MSG_REQ_PROBE);
 					up_probe = max(up_probe*1.2, PROBE_MAX);
 					next_probe = seconds + up_probe;
@@ -1289,20 +1293,26 @@ void DICOD2D::probe_reply(){
 	messages.push_back(msg);
 	probe_try.clear();
 }
-void DICOD2D::_send_msg(int dest, int msg_type, int arg){
+void DICOD2D::_send_msg(int dest, int msg_type, int arg, bool wait){
 	int sz = 2;
 	double* msg = new double[sz];
 	msg[0] = (double) msg_type;
 	msg[1] = (double) arg;
 	if(dest > -1 && dest < world_size){
-		COMM_WORLD.Isend(msg, sz, DOUBLE,
+		Request req = COMM_WORLD.Isend(msg, sz, DOUBLE,
 						 dest, TAG_MSG_SERVICE);
+		if(wait){
+			while(!req.Test())
+				this_thread::sleep_for(chrono::milliseconds(3*TEST_DELAY));
+
+		}
 		messages.push_back(msg);
 	}
 	else{
 		cout << "ERROR - MPI_Worker" << world_rank
 			 << " - tried to send a message to " << dest
 			 << "with arg " << arg << endl;
+		delete[] msg;
 	}
 }
 
