@@ -567,17 +567,28 @@ bool DICOD2D::stop(double dz){
 			cout << "DEBUG - MPI_Worker0 - Finished to wait for other process" << endl;
 		}
 		COMM_WORLD.Barrier();
-		delete msg;
+		delete[] msg;
+		msg = NULL;
 	}
 	return _stop;
 }
 
 void DICOD2D::send_result(){
 	double cost = compute_cost();
+	double *A = NULL, *B = NULL;
+
+	A = new double[K*K*(2*h_dic-1)*(2*w_dic-1)];
+	B = new double[dim*K*S];
+	_compute_AB(A, B);
 	parentComm->Barrier();
 	parentComm->Send(pt, K*L_proc, DOUBLE, ROOT, TAG_MSG_ROOT+world_rank);
 
 	// Gather computed constants
+	parentComm->Reduce(A, NULL, K*K*(2*h_dic-1)*(2*w_dic-1),
+					   DOUBLE, SUM, ROOT);
+	parentComm->Reduce(B, NULL, dim*K*S, DOUBLE, SUM, ROOT);
+	delete[] A;
+	delete[] B;
 	parentComm->Gather(&cost, UNIT_MSG, DOUBLE, NULL,
 					   NULL_SIZE, DOUBLE, ROOT);
 	parentComm->Gather(&iter, UNIT_MSG, INT, NULL,
@@ -617,7 +628,7 @@ double DICOD2D::compute_cost(){
 	fill(rec, rec+dim*L_rec, 0);
 
 	// init msg holder
-	double *val_msg;
+	double *val_msg = NULL;
 	double *msg_right = new double[dim*h_proc_S*(w_dic-1)];
 	double *msg_corner = new double[dim*(h_dic-1)*(w_dic-1)];
 	double *msg_bottom = new double[dim*(h_dic-1)*w_proc_S];
@@ -756,6 +767,304 @@ double DICOD2D::compute_cost(){
 	delete[] rec;
 	return cost;
 }
+
+// Compute z*z' and z*x for grad_D computation
+void DICOD2D::_compute_AB(double* A, double* B){
+
+	// Declare buffer and loop variables
+	Workspace wsA, wsB;
+	double *msg_left = NULL, *msg_up = NULL, *msg_corner = NULL;
+	double *msg_in_right = NULL, *msg_in_lower = NULL, *msg_in_corner = NULL;
+	double *msg = NULL, *out = NULL;
+	double *src = NULL, *srcZ = NULL, *kernel = NULL, *kernelZ = NULL;
+	double *val_pt, *val_kern, *val_ptZ, *val_kernZ;
+	int msg_size;
+	int dk, ds, k, kk, s, tau, d, pdk;
+	int h_tau, w_tau, cod_off, msg_off;
+	int h_srcZ, w_srcZ;
+
+	double *ptZ = new double[K*h_proc_S*w_proc_S];
+	fill(ptZ, ptZ+K*h_proc_S*w_proc_S, 0);
+	val_pt = pt; val_ptZ = ptZ;
+	for(k=0; k < K; k++){
+		for(h_tau=0; h_tau < h_proc; h_tau++){
+			for(w_tau=0; w_tau < w_proc; w_tau++)
+				*val_ptZ++ = *val_pt++;
+			val_ptZ += w_dic-1;
+		}
+		val_ptZ += (h_dic-1)*w_proc_S;
+	}
+
+	// Send The S-1 first terms to the right neighbor
+	if(w_rank > 0){
+		msg_size = K*h_proc*(w_dic-1);
+		msg_left = new double[msg_size];
+		for(k=0; k < K; k++){
+			for(h_tau=0; h_tau < h_proc; h_tau++){
+				msg_off = k*h_proc*(w_dic-1) + h_tau*(w_dic-1);
+				cod_off = k*L_proc + h_tau*w_proc;
+				for(w_tau=0; w_tau < w_dic-1; w_tau++)
+					msg_left[msg_off+w_tau] = pt[cod_off+w_tau];
+			}
+		}
+		COMM_WORLD.Isend(msg_left, msg_size, DOUBLE, world_rank-1, TAG_MSG_AB);
+	}
+	// Send The S-1 first terms to the upper neighbor
+	if(h_rank > 0){
+		msg_size = K*(h_dic-1)*w_proc;
+		msg_up = new double[msg_size];
+		for(k=0; k < K; k++){
+			for(h_tau=0; h_tau < h_dic-1; h_tau++){
+				msg_off = k*(h_dic-1)*w_proc + h_tau*w_proc;
+				cod_off = k*L_proc + h_tau*w_proc;
+				for(w_tau=0; w_tau < w_proc; w_tau++)
+					msg_up[msg_off+w_tau] = pt[cod_off+w_tau];
+			}
+		}
+		COMM_WORLD.Isend(msg_up, msg_size, DOUBLE, world_rank-w_world,
+						 TAG_MSG_AB);
+	}
+	// Send upper-left corner to the upper-left neighbor
+	if(h_rank > 0 && w_rank > 0){
+		msg_size = K*(h_dic-1)*(w_dic-1);
+		msg_corner = new double[msg_size];
+		for(k=0; k < K; k++){
+			for(h_tau=0; h_tau < h_dic-1; h_tau++){
+				msg_off = k*(h_dic-1)*(w_dic-1) + h_tau*(w_dic-1);
+				cod_off = k*L_proc + h_tau*w_proc;
+				for(w_tau=0; w_tau < w_dic-1; w_tau++)
+					msg_corner[msg_off+w_tau] = pt[cod_off+w_tau];
+			}
+		}
+		COMM_WORLD.Isend(msg_corner, msg_size, DOUBLE, world_rank-w_world-1,
+						 TAG_MSG_AB);
+	}
+
+	// Receive message from right neighbor
+	if(w_rank < w_world-1){
+		msg_size = K*h_proc*(w_dic-1);
+		msg_in_right = new double[msg_size];
+		COMM_WORLD.Recv(msg_in_right, msg_size, DOUBLE, world_rank+1,
+						TAG_MSG_AB);
+		val_ptZ = ptZ+w_proc;
+		val_pt = msg_in_right;
+		for(k=0; k < K; k++){
+			for(h_tau=0; h_tau < h_proc; h_tau++){
+				for(w_tau=0; w_tau < w_dic-1; w_tau++)
+					*val_ptZ++ = *val_pt++;
+				val_ptZ += w_proc;
+			}
+			val_ptZ += (h_dic-1)*w_proc_S;
+		}
+	}
+	// Receive message from lower neighbor
+	if(h_rank < h_world-1){
+		msg_size = K*(h_dic-1)*w_proc;
+		msg_in_lower = new double[msg_size];
+		COMM_WORLD.Recv(msg_in_lower, msg_size, DOUBLE, world_rank+w_world,
+						TAG_MSG_AB);
+		val_ptZ = ptZ+h_proc*w_proc_S;
+		val_pt = msg_in_lower;
+		for(k=0; k < K; k++){
+			for(h_tau=0; h_tau < h_dic-1; h_tau++){
+				for(w_tau=0; w_tau < w_proc; w_tau++)
+					*val_ptZ++ = *val_pt++;
+				val_ptZ += w_dic-1;
+			}
+			val_ptZ += h_proc*w_proc_S;
+		}
+	}
+	// Receive message from lower-right neighbor
+	if(w_rank < w_world-1 && h_rank < h_world-1){
+		msg_size = K*(h_dic-1)*(w_dic-1);
+		msg_in_corner = new double[msg_size];
+		COMM_WORLD.Recv(msg_in_corner, msg_size, DOUBLE, world_rank+w_world+1,
+					    TAG_MSG_AB);
+		val_ptZ = ptZ+h_proc*w_proc_S+w_proc;
+		val_pt = msg_in_corner;
+		for(k=0; k < K; k++){
+			for(h_tau=0; h_tau < h_dic-1; h_tau++){
+				for(w_tau=0; w_tau < w_dic-1; w_tau++)
+					*val_ptZ++ = *val_pt++;
+				val_ptZ += w_proc;
+			}
+			val_ptZ += h_proc*w_proc_S+w_proc;
+		}
+	}
+	COMM_WORLD.Barrier();
+	delete[] msg_left;
+	delete[] msg_up;
+	delete[] msg_corner;
+
+	// Init buffers and fft workspace
+	w_srcZ = w_proc + 2*(w_dic-1);
+	h_srcZ = h_proc + 2*(h_dic-1);
+	init_workspace(wsA, LINEAR_VALID, h_srcZ, w_srcZ, h_proc, w_proc);
+	init_workspace(wsB, LINEAR_VALID, h_proc_S, w_proc_S, h_proc, w_proc);
+	srcZ = new double[h_srcZ*w_srcZ];
+	fill(srcZ, srcZ + h_srcZ*w_srcZ, 0);
+	kernel = new double[L_proc];
+	kernelZ = new double[h_proc_S*w_proc_S];
+	fill(kernelZ, kernelZ + h_proc_S*w_proc_S, 0);
+
+	//Commpute A and B with fast convolution
+	for(k = 0; k < K; k++){
+
+		// dk = (k+1)*L_proc-1;
+		// for(tau=0; tau < L_proc; tau++)
+		// 	kernel[tau] = pt[dk-tau];
+
+		val_pt = pt+(k+1)*L_proc-1;
+		val_kern = kernel;
+		double *val_kernZ = kernelZ;
+		for(h_tau=h_dic-1; h_tau < h_proc_S; h_tau++){
+			for(w_tau=w_dic-1; w_tau < w_proc_S; w_tau++){
+				*val_kern++ = *val_pt;
+				*val_kernZ++ = *val_pt--;
+			}
+			val_kernZ += w_dic-1;
+		}
+
+
+  		// B[k, d] = conv(rev(Z[k]), x[d])
+		for(d=0; d < dim; d++){
+			src = &sig[d*h_proc_S*w_proc_S];
+  			convolve(wsB, src, kernel);
+  			dk = (k*dim + d)*S;
+  			for(s=0; s < S; s++)
+  			 	B[dk+s] = wsB.dst[s];
+		}
+
+		// A[k, k'][s] = conv(rev(Z[k]), Z[k'])[s]
+		// pour s \in [0, S]
+		for(kk=0; kk < K; kk++){
+			dk = kk*L_proc;
+			for(h_tau=0; h_tau < h_proc; h_tau++)
+				for(w_tau=0; w_tau < w_proc; w_tau++)
+					srcZ[(h_dic-1+h_tau)*w_srcZ +
+						  w_dic-1+w_tau] = pt[dk + h_tau*w_proc + w_tau];
+
+
+			dk = kk*h_proc*(w_dic-1);
+			if(w_rank < w_world-1)
+				for(h_tau=0; h_tau < h_proc; h_tau++)
+					for(w_tau=0; w_tau < w_dic-1; w_tau++){
+						srcZ[(h_dic-1+h_tau)*w_srcZ +
+							  w_dic-1+w_proc+w_tau] =
+							msg_in_right[dk + h_tau*(w_dic-1) + w_tau];
+						kernelZ[h_tau*w_proc_S+w_tau] =
+							msg_in_right[dk + (h_proc-h_tau)*(w_dic-1)-w_tau-1];
+					}
+
+			dk = kk*(h_dic-1)*w_proc;
+			if(h_rank < h_world-1)
+				for(h_tau=0; h_tau < h_dic-1; h_tau++)
+					for(w_tau=0; w_tau < w_proc; w_tau++){
+						srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
+							  w_dic-1+w_tau] =
+							msg_in_lower[dk + h_tau*w_proc + w_tau];
+						kernelZ[h_tau*w_proc_S+w_tau] =
+							msg_in_lower[dk + (h_dic-1-h_tau)*w_proc-w_tau-1];
+					}
+
+			dk = kk*(h_dic-1)*(w_dic-1);
+			if(w_rank < w_world-1 && h_rank < h_world-1)
+				for(h_tau=0; h_tau < h_dic-1; h_tau++)
+					for(w_tau=0; w_tau < w_dic-1; w_tau++){
+						srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
+							  w_dic-1+w_proc+w_tau] =
+							msg_in_corner[dk + h_tau*(w_dic-1) + w_tau];
+						kernelZ[h_tau*w_proc_S+w_tau] =
+							msg_in_corner[dk + (h_dic-1-h_tau)*(w_dic-1)-w_tau-1];
+					}
+			convolve(wsA, srcZ, kernel);
+
+			dk = (k*K+kk)*(2*h_dic-1)*(2*w_dic-1);
+  			for(s=0; s < (2*h_dic-1)*(2*w_dic-1); s++)
+  			 	A[dk+s] = wsA.dst[s];
+
+			// Apply correction?
+			double corr = 0;
+			if(h_rank < h_world-1){
+				pdk = k*(h_dic-1)*w_proc;
+
+		 		// Dot product from msg_in_bottom and end of pt with
+		 		// lag (hs, ws)
+	  			for(int hs=0; hs< h_dic-1; hs ++)
+	  			 	for(int ws=0; ws< 2*w_dic-1; ws ++){
+			 			corr = 0;
+						for(h_tau=0; h_tau < h_dic-1-hs; h_tau++)
+							for(w_tau=max(w_dic-1-ws, 0);
+								w_tau < min(w_proc, w_proc+w_dic-1-ws);
+								w_tau++){
+								corr += msg_in_lower[pdk + h_tau*w_proc+w_tau] *
+										ptZ[kk*h_proc_S*w_proc_S +
+											(h_proc-(h_dic-1)+hs+h_tau)*w_proc_S +
+											w_tau-(w_dic-1)+ws];
+
+							}
+
+						A[dk + hs*(2*w_dic-1) + ws] += corr;
+					}
+		 	}
+			if(w_rank < w_world-1){
+				pdk = k*h_proc*(w_dic-1);
+
+		 		// Dot product from msg_in_bottom and end of pt with
+		 		// lag (hs, ws)
+	  			for(int hs=0; hs< 2*h_dic-1; hs ++)
+	  			 	for(int ws=0; ws< w_dic-1; ws ++){
+			 			corr = 0;
+						for(h_tau=max(h_dic-1-hs, 0);
+							h_tau < min(h_proc, h_proc+h_dic-1-hs);
+							h_tau++)
+							for(w_tau=0;w_tau < w_dic-1-ws;	w_tau++){
+								corr += msg_in_right[pdk + h_tau*(w_dic-1)+w_tau] *
+										ptZ[kk*h_proc_S*w_proc_S +
+											(h_tau-(h_dic-1)+hs)*w_proc_S +
+											w_proc-(w_dic-1)+ws+w_tau];
+
+							}
+
+						A[dk + hs*(2*w_dic-1) + ws] += corr;
+					}
+		 	}
+			if(w_rank < w_world-1 && h_rank < h_world-1){
+				pdk = k*(h_dic-1)*(w_dic-1);
+
+		 		// Dot product from msg_in_bottom and end of pt with
+		 		// lag (hs, ws)
+	  			for(int hs=0; hs< h_dic-1; hs ++)
+	  			 	for(int ws=0; ws< w_dic-1; ws ++){
+			 			corr = 0;
+						for(h_tau=0; h_tau < h_dic-1-hs; h_tau++)
+							for(w_tau=0;w_tau < w_dic-1-ws;	w_tau++){
+								corr += msg_in_corner[pdk + h_tau*(w_dic-1)+w_tau] *
+										ptZ[kk*h_proc_S*w_proc_S +
+											(h_proc-(h_dic-1)+hs+h_tau)*w_proc_S +
+											w_proc-(w_dic-1)+ws+w_tau];
+
+							}
+
+						A[dk + hs*(2*w_dic-1) + ws] += corr;
+					}
+		 	}
+		}
+
+	}
+
+	// Clear buffers and workspace
+	clear_workspace(wsA);
+	clear_workspace(wsB);
+	delete[] msg_in_right;
+	delete[] msg_in_lower;
+	delete[] msg_in_corner;
+	delete[] kernel;
+	delete[] kernelZ;
+	delete[] srcZ;
+
+}
+
 
 
 // send end signals to the neighbors of the processor.

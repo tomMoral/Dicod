@@ -157,3 +157,36 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
             return default
         return arg
 
+    def compute_AB(self, x=None, pt=None, D=None):
+        # Get correct arguments
+        x = self._get_args(x, self.x)
+        pt = self._get_args(pt, self.pt)
+        D = self._get_args(D, self.D)
+
+        K, h_cod, w_cod = pt.shape
+        _, d, h_dic, w_dic = D.shape
+        _, h_sig, w_sig = x.shape
+
+        z = np.zeros((K+d, ) + x.shape[-2:])
+        z[:K, :h_cod, : w_cod] = pt
+        z[K:] = x
+
+        zz = np.zeros((K+d, 2*h_dic-2+h_cod,
+                      2*w_dic-2+w_cod))
+        zz[:K, h_dic-1:-h_dic+1, w_dic-1:-w_dic+1] = pt
+        zz[K:, :h_sig, :w_sig] = x
+        conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
+        AA = Parallel(n_jobs=-1)([conv(zz, ptk, mode='valid')
+                                  for ptk in pt[:, ::-1, ::-1]])
+        AA = np.array(AA)
+        self.AA = AA
+
+        A = Parallel(n_jobs=-1)(
+            conv(z_k, pt[:, ::-1, ::-1], mode='valid') for z_k in z)
+        A = np.array(A)
+        A, B = A[:K], A[K:]
+        A = A.swapaxes(0, 1)
+        B = B.swapaxes(0, 1)
+
+        assert np.allclose(B, AA[:, K:, :h_dic, :w_dic])
+        return A, B

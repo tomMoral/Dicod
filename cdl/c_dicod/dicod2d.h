@@ -90,7 +90,8 @@ class DICOD2D
 		double _choose_coord_Rand(int, int, int&, int&);
     	double _return_dz(double dz);
 		double compute_cost();
-		void _update_beta(double dz, int k, int t, int h, int w);
+		void _compute_AB(double*, double*);
+		void _update_beta(double dz, int k, int h, int w);
 		void process_queue();
 		void _signal_end();
 		void _send_msg(int dest, int msg_type, int arg = 0);
@@ -98,13 +99,13 @@ class DICOD2D
 		void probe_reply();
 		double _get_time_span();
 		void send_updates(double dz, int k0, int w0, int h0,
-						  int h_cod_start, int h_dic_start, int h_ll, 
+						  int h_cod_start, int h_dic_start, int h_ll,
 						  int w_cod_start, int w_dic_start, int w_ll);
 		void send_update_msg(int dest, double dz, int k0,
 							 int h_cod_start, int h_dic_start, int h_ll,
 							 int w_cod_start, int w_dic_start, int w_ll);
-	
-	
+
+
 };
 
 

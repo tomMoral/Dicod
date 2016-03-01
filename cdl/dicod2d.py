@@ -187,6 +187,14 @@ class DICOD2D(_GradientDescent):
                 pt[:, i*h_proc:(i+1)*h_proc, j*w_proc:(j+1)*w_proc] = \
                     gpt.reshape((K, h_proc_i, w_proc_i))
 
+        S = self.h_dic*self.w_dic
+        A = np.empty(K*K*(2*self.h_dic-1)*(2*self.w_dic-1), 'd')
+        self.comm.Reduce(None, [A, MPI.DOUBLE], op=MPI.SUM,
+                         root=MPI.ROOT)
+        B = np.empty(d*K*S, 'd')
+        self.comm.Reduce(None, [B, MPI.DOUBLE], op=MPI.SUM,
+                         root=MPI.ROOT)
+
         cost = np.empty(self.n_jobs, 'd')
         iterations = np.empty(self.n_jobs, 'i')
         times = np.empty(self.n_jobs, 'd')
@@ -207,6 +215,8 @@ class DICOD2D(_GradientDescent):
         log.debug("Times", times)
         t_end = time()
         self.pb.pt = pt
+        self.A = A.reshape((K, K, 2*self.h_dic-1, 2*self.w_dic-1))
+        self.B = B.reshape((K, d, self.h_dic, self.w_dic))
         self.pt_dbg = np.copy(pt)
         log.info('End for {}'.format(self),
                  'iteration {}, time {:.4}s'.format(self.iteration, self.t))
