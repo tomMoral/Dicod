@@ -62,6 +62,8 @@ class DICOD2D
 		int h_off, w_off;				// Offsets of the processor
 		int h_rank, w_rank, world_rank;	// Position on the processor grid
 		int h_seg, w_seg;				// Dimensions of the segments
+		char* proc_name;				// Name of the host
+		bool wrap_up;
 
 		// Running properties
 		int iter;						// Number of iteration
@@ -75,10 +77,15 @@ class DICOD2D
 		int cur_h_seg, cur_w_seg, current_seg;
 										// Variables to hold the current optimized segment
 
+		// Debug variables
+		double max_adz;
+		int up, up_h0, up_w0, up_count;
+		int *prev_i0, n_msg;
 
 
 		mt19937 rng;					// Random number generator for the random cooridnate choice
 		list<double*> messages;			// List all the sent messages
+		list<Request> reqs;				// List all request of pending messages
 		double next_probe, up_probe;	// Hold the information about the next probing time
 		list<int> probe_try;			// Hold the received probe requests
 		unordered_map<int, int> probe_result;
@@ -97,11 +104,13 @@ class DICOD2D
 		void _compute_AB(double*, double*);
 		void _update_beta(double dz, int k, int h, int w);
 		void process_queue();
+		void _clean_up();
 		void _signal_end();
 		void _send_msg(int dest, int msg_type, int arg = 0, bool wait = false);
 		void Ibroadcast(int msg_t);
 		void probe_reply();
 		double _get_time_span();
+		void _extended_point(double*);
 		void send_updates(double dz, int k0, int w0, int h0,
 						  int h_cod_start, int h_dic_start, int h_ll,
 						  int w_cod_start, int w_dic_start, int w_ll);

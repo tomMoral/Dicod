@@ -3,7 +3,7 @@
 // convolutional sparse coding, based on coordinate descent.
 // see [Moreau2015] for details
 //
-// author: Thomas Moreau  (thomas.moreau@cmla.ens-cachan.fr)
+// author: Thomas Moreau (thomas.moreau@cmla.ens-cachan.fr)
 // date: February 2016
 //
 #include "dicod2d.h"
@@ -41,6 +41,8 @@ void solve_DICOD(Intercomm *parentComm){
 
 //Object to handle computations
 DICOD2D::DICOD2D(Intercomm* _parentComm){
+	int plen;
+
 	// init time measurement for initialization
 	t_start = chrono::high_resolution_clock::now();
 
@@ -50,21 +52,19 @@ DICOD2D::DICOD2D(Intercomm* _parentComm){
 	alpha_k = NULL, DD=NULL, D=NULL;
 	sig = NULL, beta = NULL, pt=NULL;
 	runtime = 0;
+	proc_name = new char[MAX_PROCESSOR_NAME];
+	Get_processor_name(proc_name, plen);
 
 	// greetings
 	world_size = parentComm->Get_size();	// # processus
 	world_rank = parentComm->Get_rank();	// rank in the processus pool
 	if(DEBUG){
 		// get the machine this process is running on
-		char* procName = new char[MAX_PROCESSOR_NAME];
-		int plen;
-		Get_processor_name(procName, plen);
-		cout << "DEBUG - MPI_Worker" << world_rank << " - Start processor "
-			 << world_rank << "/" << world_size
-			 << " on " << procName << endl
-			 << "    and with COMM_WORLD " << COMM_WORLD.Get_rank() << "/"
-			 << COMM_WORLD.Get_size() << endl;
-		delete[] procName;
+		cout << "DEBUG:job" << world_rank << " - Start processor "
+				<< world_rank << "/" << world_size
+				<< " on " << proc_name << endl
+				<< " and with COMM_WORLD " << COMM_WORLD.Get_rank() << "/"
+				<< COMM_WORLD.Get_size() << endl;
 	}
 }
 
@@ -77,11 +77,12 @@ DICOD2D::~DICOD2D(){
 	delete[] pt;
 	delete[] beta;
 	delete[] end_neigh;
+	delete[] proc_name;
 }
 
 void DICOD2D::start(){
-	int seed =  chrono::duration_cast<chrono::milliseconds>(
-                   t_start.time_since_epoch()).count();
+	int seed = chrono::duration_cast<chrono::milliseconds>(
+		t_start.time_since_epoch()).count();
 	rng.seed(world_rank*seed);
 	_rcv_task();
 
@@ -92,8 +93,8 @@ void DICOD2D::start(){
 
 	// get a timer to evaluate the performances
 	t_init = _get_time_span();
-  	if((debug || DEBUG) && world_rank == 0)
-  		cout << "DEBUG - MPI_Workers - End initialization in " << t_init << endl;
+	if((debug || DEBUG) && world_rank == 0)
+		cout << "DEBUG:jobs - End initialization in " << t_init << endl;
 	t_start = chrono::high_resolution_clock::now();
 }
 
@@ -144,12 +145,12 @@ void DICOD2D::_rcv_task(){
 		patience = 1;
 
 	if(world_rank == 0 && (DEBUG || debug))
-		cout << "DEBUG - MPI_Workers - Start with algorithm : "
-			 << ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
+		cout << "DEBUG:jobs - Start with algorithm : "
+				<< ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
 
 	// total sizes of the code
-	h_cod = h_sig-h_dic+1;   // height of the code per proc
-	w_cod = w_sig-w_dic+1;   // width of the code per proc
+	h_cod = h_sig-h_dic+1;	// height of the code per proc
+	w_cod = w_sig-w_dic+1;	// width of the code per proc
 	L = h_cod*w_cod;
 
 	// sizes of the code computed by the processor
@@ -175,7 +176,7 @@ void DICOD2D::_rcv_task(){
 	delete[] sig;
 	sig = new double[dim*h_proc_S*w_proc_S];
 	parentComm->Recv(sig, dim*h_proc_S*w_proc_S, DOUBLE, ROOT,
-					 TAG_MSG_ROOT+world_rank);
+						TAG_MSG_ROOT+world_rank);
 
 	confirm_array(parentComm, sig[0], sig[dim*h_proc_S*w_proc_S-1]);
 }
@@ -191,7 +192,7 @@ void DICOD2D::_init_algo(){
 	Workspace ws;
 	init_workspace(ws, LINEAR_VALID, h_proc_S, w_proc_S, h_dic, w_dic);
 
- 	// the main loop
+	// the main loop
 
 
 	//Initialize beta and pt
@@ -208,10 +209,10 @@ void DICOD2D::_init_algo(){
 			//Revert dic in both direction
 			for(tau=0; tau < S; tau++)
 				kernel[tau] = D[(k*dim+(d+1))*S-tau-1];
-  			convolve(ws, src, kernel);
-  			for(t=0; t < L_proc; t++){
-  			 	beta[k*L_proc+t] -= ws.dst[t]/dim;
-  			}
+			convolve(ws, src, kernel);
+			for(t=0; t < L_proc; t++){
+				beta[k*L_proc+t] -= ws.dst[t]/dim;
+			}
 		}
 	}
 	clear_workspace(ws);
@@ -220,6 +221,8 @@ void DICOD2D::_init_algo(){
 	iter = 0;
 	pause = false;
 	go = true;
+	up = -1;
+	up_count = 0;
 	next_probe = 0;
 	up_probe = PROBE_MSG_UP_START;
 	log_dz.clear();
@@ -246,13 +249,15 @@ void DICOD2D::_init_algo(){
 		h_seg = h_proc;
 	n_seg = seg;
 	if(world_rank == 0 && (debug || DEBUG))
-		cout << "DEBUG - MPI_Workers - Number of segment: " << n_seg
-			 << " of size " << h_seg << ", " << w_seg << endl;
+		cout << "DEBUG:jobs - Number of segment: " << n_seg
+				<< " of size " << h_seg << ", " << w_seg << endl;
 
 	patience *= n_seg;
 	prev_i0 = new int[n_seg];
 	n_zero = 0;
 	n_barrier = 0;
+	n_msg = 0;
+	wrap_up = false;
 
 	end_neigh = new bool[8];
 	end_neigh[0] = !(w_rank > 0);
@@ -267,8 +272,8 @@ void DICOD2D::_init_algo(){
 
 // choose coordinate to update with Gauss-southwell rule
 double DICOD2D::_choose_coord_GS(int seg_h_start, int seg_h_end,
-								 int seg_w_start, int seg_w_end,
-								 int &k0, int &h0, int& w0)
+									int seg_w_start, int seg_w_end,
+									int &k0, int &h0, int& w0)
 {
 	//Find argmax of |z_i - z'_i|
 	int k, k_off = 0, h, w, i, i0;
@@ -296,8 +301,8 @@ double DICOD2D::_choose_coord_GS(int seg_h_start, int seg_h_end,
 		k_off += L_proc;
 	}
 	if(!isnormal(adz)){
-		cout << "Not normal dz : " << dz  << " ak " << alpha_k[k0]
-			 << "  beta_i " << beta[i0] <<  endl;
+		cout << "Not normal dz : " << dz << " ak " << alpha_k[k0]
+				<< " beta_i " << beta[i0] << endl;
 		dz = 0;
 	}
 	return dz;
@@ -305,18 +310,18 @@ double DICOD2D::_choose_coord_GS(int seg_h_start, int seg_h_end,
 
 // choose coordinate to update with Gauss-southwell rule
 double DICOD2D::_choose_coord_Rand(int seg_h_start, int seg_h_end,
-								   int seg_w_start, int seg_w_end,
-								   int &k0, int &h0, int& w0)
+									int seg_w_start, int seg_w_end,
+									int &k0, int &h0, int& w0)
 {
 
 	int i, k, h, w, i0;
 	double beta_i, sign_beta_i, ak, dz = tol;
 	uniform_int_distribution<> dis_k(0, K-1),
-							   dis_h(seg_h_start, seg_h_end-1),
-							   dis_w(seg_w_start, seg_w_end-1);
+								dis_h(seg_h_start, seg_h_end-1),
+								dis_w(seg_w_start, seg_w_end-1);
 
 	// draw a random coordinate uniformely
-	k  = dis_k(rng);
+	k = dis_k(rng);
 	h = dis_h(rng);
 	w = dis_w(rng);
 
@@ -337,8 +342,8 @@ double DICOD2D::_choose_coord_Rand(int seg_h_start, int seg_h_end,
 		dz = pt[i]-beta_i;
 	}
 	if(!isnormal(dz)){
-		cout << "Not normal dz : " << dz  << " ak " << alpha_k[k0]
-			 << "  beta_i " << beta[i0] <<  endl;
+		cout << "Not normal dz : " << dz << " ak " << alpha_k[k0]
+				<< " beta_i " << beta[i0] << endl;
 		dz = 0;
 	}
 	return dz;
@@ -349,6 +354,7 @@ double DICOD2D::step(){
 	if(pause)
 		this_thread::sleep_for(chrono::milliseconds(PAUSE_DELAY));
 
+	time_point t_step_start = chrono::high_resolution_clock::now();
 	process_queue();
 	//int i, k, t, k_off;
 	int k0 = -1, w0, h0;
@@ -386,12 +392,32 @@ double DICOD2D::step(){
 	// choose a coordinate to update
 	if(algo == ALGO_GS)
 		dz = _choose_coord_GS(seg_h_start, seg_h_end, seg_w_start, seg_w_end,
-							  k0, h0, w0);
+								k0, h0, w0);
 	else if(algo == ALGO_RANDOM)
 		dz = _choose_coord_Rand(seg_h_start, seg_h_end, seg_w_start, seg_w_end,
-							    k0, h0, w0);
+								k0, h0, w0);
 
 	adz = fabs(dz);
+	if(iter == 0)
+		max_adz = adz;
+
+
+	//if(adz > 2*max_adz && up >= 0 && algo == ALGO_GS){
+	int i0 = h0*w_proc + w0;
+	// if(prev_i0[current_seg] == i0 && algo == ALGO_GS){
+	// 	cout << "DEBUG:job" << world_rank << " - Got 2 updates "
+	// 		<< "in the same place " << h0 << ", " << w0 << endl;
+	// }
+		// cout << world_rank << ": Stop as adz too high after up "
+		// 		<< up << " at position " << up_h0 << "/ " << h_proc
+		// 		<< ", " << up_w0 << "/ " << w_proc << " with dz="
+		// 		<< dz << endl;
+		// adz = 0;
+		// dz = 0;
+		// iter = i_max;
+	//}
+	prev_i0[current_seg] = i0;
+	up = -1;
 
 	// if the update is too small, do not update and return a 0 update
 	if(adz <= tol)
@@ -404,7 +430,7 @@ double DICOD2D::step(){
 
 	// log the update if the logging is active
 	if(logging){
-	  	double seconds = _get_time_span();
+		double seconds = _get_time_span();
 
 		log_t.push_back(seconds);
 		log_dz.push_back(-dz);
@@ -414,9 +440,19 @@ double DICOD2D::step(){
 	// update beta
 	_update_beta(dz, k0, h0, w0);
 
+
+	time_point t_step_end = chrono::high_resolution_clock::now();
+
+	double time_step = chrono::duration_cast<d_duration>(
+		t_step_end - t_step_start).count();
+	/*if(time_step >= 3e-2){
+		cout << "DEBUG:" << proc_name << ":job" << world_rank <<":iter " << iter
+				<< " - step took " << time_step << "s to finished - " << n_msg << endl;
+	}*/
+
 	if(iter % (i_max/10) == 0 && (debug || DEBUG) && world_rank == 0)
-		cout << "DEBUG - MPI_Workers - sparse coding " << iter*100/i_max
-	         << "\x25" << endl;
+		cout << "DEBUG:jobs - sparse coding " << iter*100/i_max
+		<< "\x25" << endl;
 
 	return _return_dz(adz);
 }
@@ -470,64 +506,65 @@ void DICOD2D::_update_beta(double dz, int k0, int h0, int w0){
 
 	// send messages to neighboors
 	send_updates(dz, k0, w0, h0, h_cod_start, h_DD_start, h_ll,
-				 w_cod_start, w_DD_start, w_ll);
+					w_cod_start, w_DD_start, w_ll);
 }
 
 // send updates messages to neighbors
 void DICOD2D::send_updates(double dz, int k0, int w0, int h0,
-						   int h_cod_start, int h_DD_start, int h_ll,
-						   int w_cod_start, int w_DD_start, int w_ll)
+							int h_cod_start, int h_DD_start, int h_ll,
+							int w_cod_start, int w_DD_start, int w_ll)
 {
-	if(w0 < w_dic && w_rank > 0)
-			send_update_msg(world_rank - 1, dz, k0,
-							h_cod_start, h_DD_start, h_ll,		// left neighbor
-							-w_DD_start, 0, w_DD_start);
 
 	if(w0 > w_proc-w_dic && w_rank < w_world - 1)
 			send_update_msg(world_rank + 1, dz, k0,
-							h_cod_start, h_DD_start, h_ll,		// right neighbor
+							h_cod_start, h_DD_start, h_ll,	// right neighbor
 							0, w_ll, (2*w_dic-1)-w_ll);
 
-	if(h0 < h_dic && h_rank > 0){
+	if(w0 < w_dic-1 && w_rank > 0)
+			send_update_msg(world_rank - 1, dz, k0,
+							h_cod_start, h_DD_start, h_ll,	// left neighbor
+							-w_DD_start, 0, w_DD_start);
+
+	if(h0 < h_dic-1 && h_rank > 0){
 		if(w0 > w_proc-w_dic && w_rank < w_world - 1)
 			send_update_msg(world_rank - w_world + 1, dz, k0,
-				 			-h_DD_start, 0, h_DD_start,			// uper-right neighbor
+								-h_DD_start, 0, h_DD_start,		// uper-right neighbor
 							0, w_ll, (2*w_dic-1)-w_ll);
 
 			send_update_msg(world_rank - w_world, dz, k0,
-							-h_DD_start, 0, h_DD_start,			// upper neighbor
+							-h_DD_start, 0, h_DD_start,		// upper neighbor
 							w_cod_start, w_DD_start, w_ll);
 
-		if(w0 < w_dic && w_rank > 0)
+		if(w0 < w_dic-1 && w_rank > 0)
 			send_update_msg(world_rank - w_world - 1, dz, k0,
-							-h_DD_start, 0, h_DD_start,			// upper-left neighbor
+							-h_DD_start, 0, h_DD_start,		// upper-left neighbor
 							-w_DD_start, 0, w_DD_start);
 	}
 
 	else if(h0 > h_proc-h_dic && h_rank < h_world - 1){
 		if(w0 > w_proc-w_dic && w_rank < w_world - 1)
 			send_update_msg(world_rank + w_world + 1, dz, k0,
-							0, h_ll, (2*h_dic-1)-h_ll,			// lower-right neightbor
+							0, h_ll, (2*h_dic-1)-h_ll,		// lower-right neightbor
 							0, w_ll, (2*w_dic-1)-w_ll);
 
 			send_update_msg(world_rank + w_world, dz, k0,
-							0, h_ll, (2*h_dic-1)-h_ll,			// lower neighbor
+							0, h_ll, (2*h_dic-1)-h_ll,		// lower neighbor
 							w_cod_start, w_DD_start, w_ll);
 
-		if(w0 < w_dic && w_rank > 0)
+		if(w0 < w_dic-1 && w_rank > 0)
 			send_update_msg(world_rank + w_world - 1, dz, k0,
-							0, h_ll, (2*h_dic-1)-h_ll,			// lower-left neighbor
+							0, h_ll, (2*h_dic-1)-h_ll,		// lower-left neighbor
 							-w_DD_start, 0, w_DD_start);
 	}
 }
 
 // send update message to th neighbor dest
 void DICOD2D::send_update_msg(int dest, double dz, int k0,
-							  int h_cod_start, int h_DD_start, int h_ll,
-							  int w_cod_start, int w_DD_start, int w_ll)
+								int h_cod_start, int h_DD_start, int h_ll,
+								int w_cod_start, int w_DD_start, int w_ll)
 {
 	// construct the message
- 	double* msg = new double[HEADER_2D];
+	double* msg = new double[HEADER_2D];
 	msg[0] = (double) MSG_UP;
 	msg[1] = dz;
 	msg[2] = (double) k0;
@@ -536,11 +573,17 @@ void DICOD2D::send_update_msg(int dest, double dz, int k0,
 	msg[5] = (double) h_DD_start*(2*w_dic-1)+w_DD_start;
 	msg[6] = (double) h_ll;
 	msg[7] = (double) w_ll;
-	messages.push_back(msg);
+	msg[8] = (double) world_rank;
+	msg[9] = (double) iter;
+	msg[10] = (double) up_count;
+	up_count++;
 
 	// send the message
-	COMM_WORLD.Isend(msg, HEADER_2D, DOUBLE,
-				     dest, TAG_MSG_UP);
+	Request req = COMM_WORLD.Isend(msg, HEADER_2D, DOUBLE,
+					dest, TAG_MSG_UP);
+	messages.push_back(msg);
+	reqs.push_back(req);
+	n_msg ++;
 
 	// fail all previous probes as we will wake at least one process with this msg
 	unordered_map<int,int>::iterator it;
@@ -553,20 +596,20 @@ bool DICOD2D::stop(double dz){
 	double seconds = _get_time_span();
 	double *msg = NULL;
 
-  	// if we have reach an optimal solution, stop the algorithm
+	// if we have reach an optimal solution, stop the algorithm
 	if(!go){
 		COMM_WORLD.Barrier();
 		if(world_rank == 0 && (debug || DEBUG))
 			cout << "INFO - MPI_Workers- Reach optimal solution in " << seconds
-				 << endl;
+				<< endl;
 		return true;
 	}
 
 	// print debug message to notify that we reach a timeout or the maximal iteration
 	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
-		cout << "DEBUG - MPI_Workers - Reach timeout" << endl;
+		cout << "DEBUG:jobs - Reach timeout" << endl;
 	if((debug || DEBUG) && iter >= i_max && world_rank == 0)
-		cout << "DEBUG - MPI_Workers - Reach max iteration" << endl;
+		cout << "DEBUG:jobs - Reach max iteration" << endl;
 
 	// if we have reach an optimal solution within the process
 	// enter pause state if the other processes are still running
@@ -591,7 +634,7 @@ bool DICOD2D::stop(double dz){
 			// probe the other process to know if they are still running
 			if(next_probe <= seconds){
 				Ibroadcast(MSG_REQ_PROBE);
-				up_probe = max(up_probe*1.2, PROBE_MAX);
+				up_probe = min(up_probe*1.2, PROBE_MAX);
 				next_probe = seconds + up_probe;
 			}
 		}
@@ -606,30 +649,35 @@ bool DICOD2D::stop(double dz){
 	_stop |= (seconds >= t_max);
 	if(_stop){
 		runtime = seconds;
-		if(world_rank != 0)
+		if(world_rank != 0){
 			_send_msg(ROOT, MSG_HIT_BARRIER);
+		}
 		else{
+			wrap_up = true;
 			up_probe = PROBE_MSG_UP_START;
 			next_probe = seconds;
-			cout << "DEBUG - MPI_Worker0 - will wait until other process end "
-				 << "or paused" << endl;
+			cout << "DEBUG:job0 - will wait until other process end "
+				<< "or paused" << endl;
 			while(go && n_barrier < world_size-1){
 				pause = true;
 				this_thread::sleep_for(chrono::milliseconds(TEST_DELAY));
 				seconds = _get_time_span();
 				if(next_probe <= seconds){
-
 					Ibroadcast(MSG_REQ_PROBE);
-					up_probe = max(up_probe*1.2, PROBE_MAX);
+					up_probe = min(up_probe*1.2, PROBE_MAX);
 					next_probe = seconds + up_probe;
 				}
 				process_queue();
 			}
-			cout << "DEBUG - MPI_Worker0 - Finished to wait for other process" << endl;
+			cout << "DEBUG:job0 - Finished to wait for other process. go: "
+				<< go << endl;
 		}
 		COMM_WORLD.Barrier();
+		_clean_up();
 		delete[] msg;
 		msg = NULL;
+		if(world_rank == 0)
+			cout << "DEBUG:job0 finished wrap_up" << endl;
 	}
 	return _stop;
 }
@@ -640,24 +688,30 @@ void DICOD2D::send_result(){
 
 	A = new double[K*K*(2*h_dic-1)*(2*w_dic-1)];
 	B = new double[dim*K*S];
+	time_point t_ab = chrono::high_resolution_clock::now();
 	_compute_AB(A, B);
+	if(world_rank == 0){
+		time_point t_ab2 = chrono::high_resolution_clock::now();
+		double dur = chrono::duration_cast<d_duration>(t_ab2 - t_ab).count();
+		cout << "DEBUG:jobs - AB computation took " << dur << "s" << endl;
+	}
 	parentComm->Barrier();
 	parentComm->Send(pt, K*L_proc, DOUBLE, ROOT, TAG_MSG_ROOT+world_rank);
 
 	// Gather computed constants
 	parentComm->Reduce(A, NULL, K*K*(2*h_dic-1)*(2*w_dic-1),
-					   DOUBLE, SUM, ROOT);
+						DOUBLE, SUM, ROOT);
 	parentComm->Reduce(B, NULL, dim*K*S, DOUBLE, SUM, ROOT);
 	delete[] A;
 	delete[] B;
 	parentComm->Gather(&cost, UNIT_MSG, DOUBLE, NULL,
-					   NULL_SIZE, DOUBLE, ROOT);
+						NULL_SIZE, DOUBLE, ROOT);
 	parentComm->Gather(&iter, UNIT_MSG, INT, NULL,
-					   NULL_SIZE, DOUBLE, ROOT);
+						NULL_SIZE, DOUBLE, ROOT);
 	parentComm->Gather(&runtime, UNIT_MSG, DOUBLE, NULL,
-					   NULL_SIZE, DOUBLE, ROOT);
+						NULL_SIZE, DOUBLE, ROOT);
 	parentComm->Gather(&t_init, UNIT_MSG, DOUBLE, NULL,
-					   NULL_SIZE, DOUBLE, ROOT);
+						NULL_SIZE, DOUBLE, ROOT);
 
 	if (logging){
 		double* _log = new double[3*iter];
@@ -705,41 +759,41 @@ double DICOD2D::compute_cost(){
 			// compute reconstruction
 			src = pt+k*L_proc;
 			kernel = D+(k*dim+d)*S;
-  			convolve(ws, src, kernel);
-  			for(tau=0; tau < L_rec; tau++)
-  				rec[d*L_rec + tau] += ws.dst[tau];
-  			msg_off = d*h_proc_S*(w_dic-1);
-  			for(h_tau=0; h_tau < h_proc_S; h_tau++)
-  				for(w_tau=0; w_tau < w_dic-1; w_tau++){
-  					msg_tau = h_tau*(w_dic-1)+w_tau;
-  					rec_tau = h_tau*w_proc_S+w_tau;
-  					msg_right[msg_off+msg_tau] += ws.dst[rec_tau];
-  				}
-  			msg_off = d*(h_dic-1)*(w_dic-1);
-  			for(h_tau=0; h_tau < h_dic-1; h_tau++)
-  				for(w_tau=0; w_tau < w_dic-1; w_tau++){
-  					msg_tau = h_tau*(w_dic-1)+w_tau;
-  					rec_tau = h_tau*w_proc_S+w_tau;
-  					msg_corner[msg_off+msg_tau] += ws.dst[rec_tau];
-  				}
-  			msg_off = d*(h_dic-1)*w_proc_S;
-  			for(h_tau=0; h_tau < h_dic-1; h_tau++)
-  				for(w_tau=0; w_tau < w_proc_S; w_tau++){
-  					msg_tau = h_tau*w_proc_S+w_tau;
-  					rec_tau = h_tau*w_proc_S+w_tau;
-  					msg_bottom[msg_off+msg_tau] += ws.dst[rec_tau];
-  				}
+			convolve(ws, src, kernel);
+			for(tau=0; tau < L_rec; tau++)
+				rec[d*L_rec + tau] += ws.dst[tau];
+			msg_off = d*h_proc_S*(w_dic-1);
+			for(h_tau=0; h_tau < h_proc_S; h_tau++)
+				for(w_tau=0; w_tau < w_dic-1; w_tau++){
+					msg_tau = h_tau*(w_dic-1)+w_tau;
+					rec_tau = h_tau*w_proc_S+w_tau;
+					msg_right[msg_off+msg_tau] += ws.dst[rec_tau];
+				}
+			msg_off = d*(h_dic-1)*(w_dic-1);
+			for(h_tau=0; h_tau < h_dic-1; h_tau++)
+				for(w_tau=0; w_tau < w_dic-1; w_tau++){
+					msg_tau = h_tau*(w_dic-1)+w_tau;
+					rec_tau = h_tau*w_proc_S+w_tau;
+					msg_corner[msg_off+msg_tau] += ws.dst[rec_tau];
+				}
+			msg_off = d*(h_dic-1)*w_proc_S;
+			for(h_tau=0; h_tau < h_dic-1; h_tau++)
+				for(w_tau=0; w_tau < w_proc_S; w_tau++){
+					msg_tau = h_tau*w_proc_S+w_tau;
+					rec_tau = h_tau*w_proc_S+w_tau;
+					msg_bottom[msg_off+msg_tau] += ws.dst[rec_tau];
+				}
 		}
 	clear_workspace(ws);
 	if(w_rank > 0)
 		COMM_WORLD.Isend(msg_right, dim*h_proc_S*(w_dic-1), DOUBLE,
-						 world_rank-1, TAG_MSG_COST);
+							world_rank-1, TAG_MSG_COST);
 	if(w_rank > 0 && h_rank > 0)
 		COMM_WORLD.Isend(msg_corner, dim*(h_dic-1)*(w_dic-1), DOUBLE,
-						 world_rank-w_world-1, TAG_MSG_COST);
+							world_rank-w_world-1, TAG_MSG_COST);
 	if(h_rank > 0)
 		COMM_WORLD.Isend(msg_bottom, dim*(h_dic-1)*w_proc_S, DOUBLE,
-						 world_rank-w_world, TAG_MSG_COST);
+							world_rank-w_world, TAG_MSG_COST);
 	if(w_rank < w_world-1){
 		COMM_WORLD.Recv(msg_in_right, dim*h_proc_S*(w_dic-1), DOUBLE,
 						world_rank+1, TAG_MSG_COST);
@@ -747,12 +801,12 @@ double DICOD2D::compute_cost(){
 		for(d=0; d< dim; d++){
 			rec_off = d*L_rec;
 			for(h_tau=0; h_tau < h_proc_S; h_tau++)
-  				for(w_tau=0; w_tau < w_dic-1; w_tau++){
-  					rec_tau = h_tau*w_proc_S + w_proc + w_tau;
-  					rec[rec_off+rec_tau] += *val_msg;
-  					val_msg++;
-  				}
-  		}
+				for(w_tau=0; w_tau < w_dic-1; w_tau++){
+					rec_tau = h_tau*w_proc_S + w_proc + w_tau;
+					rec[rec_off+rec_tau] += *val_msg;
+					val_msg++;
+				}
+		}
 	}
 	if(h_rank < h_world-1){
 		val_msg = msg_in_bottom;
@@ -761,12 +815,12 @@ double DICOD2D::compute_cost(){
 		for(d=0; d < dim; d++){
 			rec_off = d*L_rec;
 			for(h_tau=0; h_tau < h_dic-1; h_tau++)
-  				for(w_tau=0; w_tau < w_proc_S; w_tau++){
-  					rec_tau = (h_proc+h_tau)*w_proc_S + w_tau;
-  					rec[rec_off+rec_tau] += *val_msg;
-  					val_msg++;
-  				}
-  		}
+				for(w_tau=0; w_tau < w_proc_S; w_tau++){
+					rec_tau = (h_proc+h_tau)*w_proc_S + w_tau;
+					rec[rec_off+rec_tau] += *val_msg;
+					val_msg++;
+				}
+		}
 	}
 	if(w_rank < w_world-1 && h_rank < h_world-1){
 		val_msg = msg_in_corner;
@@ -776,13 +830,13 @@ double DICOD2D::compute_cost(){
 			msg_off = d*(h_dic-1)*(w_dic-1);
 			rec_off = d*L_rec;
 			for(h_tau=0; h_tau < h_dic-1; h_tau++)
-  				for(w_tau=0; w_tau < w_dic-1; w_tau++){
-  					msg_tau = h_tau*(w_dic-1) + w_tau;
-  					rec_tau = (h_proc+h_tau)*w_proc_S + w_proc + w_tau;
-  					rec[rec_off+rec_tau] += *val_msg;
-  					val_msg++;
-  				}
-  		}
+				for(w_tau=0; w_tau < w_dic-1; w_tau++){
+					msg_tau = h_tau*(w_dic-1) + w_tau;
+					rec_tau = (h_proc+h_tau)*w_proc_S + w_proc + w_tau;
+					rec[rec_off+rec_tau] += *val_msg;
+					val_msg++;
+				}
+		}
 	}
 	delete[] msg_in_right;
 	delete[] msg_in_corner;
@@ -829,8 +883,106 @@ double DICOD2D::compute_cost(){
 	return cost;
 }
 
+
+
+
+void DICOD2D::_extended_point(double* out){
+	int msg_size, i, k, h_tau, w_tau;
+	int dst, from, w_msg, dk;
+	int* params;
+	double *msg, *msg_val, *pt_val;
+	double* msgs[] = {NULL, NULL, NULL, NULL, NULL, NULL, NULL, NULL};
+
+	fill(out, out+K*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1)), 0);
+
+	int position[][8] = {
+		{world_rank-w_world-1, h_rank > 0 && w_rank > 0,
+			0, h_dic-1, 0, w_dic-1, 0, 0},
+		{world_rank-w_world, h_rank > 0,
+			0, h_dic-1, 0, w_proc, 0, 1},
+		{world_rank-w_world+1, h_rank > 0 && w_rank < w_world-1,
+			0, h_dic-1, w_proc-w_dic+1, w_proc, 0, 2},
+
+		{world_rank-1, w_rank > 0,
+			0, h_proc, 0, w_dic-1, 1, 0},
+		{world_rank+1, w_rank < w_world-1,
+			0, h_proc, w_proc-w_dic+1, w_proc, 1, 2},
+
+		{world_rank+w_world-1, h_rank < h_world-1 && w_rank > 0,
+			h_proc-h_dic+1, h_proc, 0, w_dic-1, 2, 0},
+		{world_rank+w_world, h_rank < h_world-1,
+			h_proc-h_dic+1, h_proc, 0, w_proc, 2, 1},
+		{world_rank+w_world+1, h_rank < h_world-1 && w_rank < w_world-1,
+			h_proc-h_dic+1, h_proc, w_proc-w_dic+1, w_proc, 2, 2}
+	};
+
+	for(i=0; i < 8; i++){
+		params = position[i];
+		if(params[1]){
+			dst = params[0];
+			w_msg = params[5]-params[4];
+
+			msg_size = K*(params[3]-params[2])*w_msg;
+			msg = new double[msg_size];
+			msg_val = msg;
+			for(k=0; k < K; k++){
+				for(h_tau=params[2]; h_tau < params[3];
+					h_tau++, msg_val+=w_msg){
+					dk = (k*h_proc+h_tau)*w_proc + params[4];
+					memcpy(msg_val, pt+dk, w_msg);
+				}
+			}
+			COMM_WORLD.Isend(msg, msg_size, DOUBLE, dst, TAG_MSG_AB);
+			msgs[i] = msg;
+		}
+	}
+
+	for(i=0; i < 8; i ++){
+		params = position[i];
+		if(params[1]){
+			from = params[0];
+			w_msg = params[5]-params[4];
+
+			msg_size = K*(params[3]-params[2])*w_msg;
+			msg = new double[msg_size];
+			COMM_WORLD.Recv(msg, msg_size, DOUBLE, from,
+							TAG_MSG_AB);
+			msg_val = msg;
+			for(k=0; k < K; k++){
+				for(h_tau=params[2]; h_tau < params[3];
+					h_tau++, msg_val+=w_msg){
+					dk = k*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1));
+					dk += (h_tau + params[6]*(h_dic-1))*(w_proc+2*(w_dic-1));
+					dk += params[4] + params[7]*(h_dic-1);
+					memcpy(out+dk, msg_val, w_msg);
+				}
+			}
+		}
+	}
+
+	pt_val = pt;
+	for(k=0; k< K; k++)
+		for(h_tau=0; h_tau < h_proc; h_tau++, pt_val += w_proc){
+			dk = k*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1));
+			dk += (h_tau+h_dic-1)*(w_proc+2*(w_dic-1)) + w_dic-1;
+			memcpy(out+dk, pt_val, w_proc);
+		}
+
+	COMM_WORLD.Barrier();
+	for(i = 0; i < 8; i++)
+		delete[] msgs[i];
+
+}
+
 // Compute z*z' and z*x for grad_D computation
 void DICOD2D::_compute_AB(double* A, double* B){
+
+	double* test = new double[K*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1))];
+	_extended_point(test);
+	delete[] test;
+
+	if(world_rank==0)
+		cout << "DEBUG:jobs - Passed delete barrier" << endl;
 
 	// Declare buffer and loop variables
 	Workspace wsA, wsB;
@@ -856,7 +1008,7 @@ void DICOD2D::_compute_AB(double* A, double* B){
 		val_ptZ += (h_dic-1)*w_proc_S;
 	}
 
-	// Send The S-1 first terms to the right neighbor
+	// send The S-1 first terms to the right neighbor
 	if(w_rank > 0){
 		msg_size = K*h_proc*(w_dic-1);
 		msg_left = new double[msg_size];
@@ -870,7 +1022,7 @@ void DICOD2D::_compute_AB(double* A, double* B){
 		}
 		COMM_WORLD.Isend(msg_left, msg_size, DOUBLE, world_rank-1, TAG_MSG_AB);
 	}
-	// Send The S-1 first terms to the upper neighbor
+	// send The S-1 first terms to the upper neighbor
 	if(h_rank > 0){
 		msg_size = K*(h_dic-1)*w_proc;
 		msg_up = new double[msg_size];
@@ -883,9 +1035,9 @@ void DICOD2D::_compute_AB(double* A, double* B){
 			}
 		}
 		COMM_WORLD.Isend(msg_up, msg_size, DOUBLE, world_rank-w_world,
-						 TAG_MSG_AB);
+							TAG_MSG_AB);
 	}
-	// Send upper-left corner to the upper-left neighbor
+	// send upper-left corner to the upper-left neighbor
 	if(h_rank > 0 && w_rank > 0){
 		msg_size = K*(h_dic-1)*(w_dic-1);
 		msg_corner = new double[msg_size];
@@ -898,10 +1050,10 @@ void DICOD2D::_compute_AB(double* A, double* B){
 			}
 		}
 		COMM_WORLD.Isend(msg_corner, msg_size, DOUBLE, world_rank-w_world-1,
-						 TAG_MSG_AB);
+							TAG_MSG_AB);
 	}
 
-	// Receive message from right neighbor
+	// receive message from right neighbor
 	if(w_rank < w_world-1){
 		msg_size = K*h_proc*(w_dic-1);
 		msg_in_right = new double[msg_size];
@@ -940,7 +1092,7 @@ void DICOD2D::_compute_AB(double* A, double* B){
 		msg_size = K*(h_dic-1)*(w_dic-1);
 		msg_in_corner = new double[msg_size];
 		COMM_WORLD.Recv(msg_in_corner, msg_size, DOUBLE, world_rank+w_world+1,
-					    TAG_MSG_AB);
+						TAG_MSG_AB);
 		val_ptZ = ptZ+h_proc*w_proc_S+w_proc;
 		val_pt = msg_in_corner;
 		for(k=0; k < K; k++){
@@ -987,13 +1139,12 @@ void DICOD2D::_compute_AB(double* A, double* B){
 		}
 
 
-  		// B[k, d] = conv(rev(Z[k]), x[d])
+		// B[k, d] = conv(rev(Z[k]), x[d])
 		for(d=0; d < dim; d++){
 			src = &sig[d*h_proc_S*w_proc_S];
-  			convolve(wsB, src, kernel);
-  			dk = (k*dim + d)*S;
-  			for(s=0; s < S; s++)
-  			 	B[dk+s] = wsB.dst[s];
+			convolve(wsB, src, kernel);
+			dk = (k*dim + d)*S;
+			memcpy(B+dk, wsB.dst, S*sizeof(double));
 		}
 
 		// A[k, k'][s] = conv(rev(Z[k]), Z[k'])[s]
@@ -1001,59 +1152,74 @@ void DICOD2D::_compute_AB(double* A, double* B){
 		for(kk=0; kk < K; kk++){
 			dk = kk*L_proc;
 			for(h_tau=0; h_tau < h_proc; h_tau++)
-				for(w_tau=0; w_tau < w_proc; w_tau++)
-					srcZ[(h_dic-1+h_tau)*w_srcZ +
-						  w_dic-1+w_tau] = pt[dk + h_tau*w_proc + w_tau];
+				memcpy(srcZ + (h_dic-1+h_tau)*w_srcZ + w_dic-1,
+						pt + dk + h_tau*w_proc,
+						w_proc*sizeof(double));
 
 
 			dk = kk*h_proc*(w_dic-1);
 			if(w_rank < w_world-1)
-				for(h_tau=0; h_tau < h_proc; h_tau++)
+				for(h_tau=0; h_tau < h_proc; h_tau++){
+					memcpy(srcZ + (h_dic-1+h_tau)*w_srcZ + w_dic-1 + w_proc,
+							msg_in_right + dk + h_tau*(w_dic-1),
+							(w_dic-1)*sizeof(double));
 					for(w_tau=0; w_tau < w_dic-1; w_tau++){
-						srcZ[(h_dic-1+h_tau)*w_srcZ +
-							  w_dic-1+w_proc+w_tau] =
-							msg_in_right[dk + h_tau*(w_dic-1) + w_tau];
+						// srcZ[(h_dic-1+h_tau)*w_srcZ +
+						//		w_dic-1+w_proc+w_tau] =
+						//		msg_in_right[dk + h_tau*(w_dic-1) + w_tau];
 						kernelZ[h_tau*w_proc_S+w_tau] =
 							msg_in_right[dk + (h_proc-h_tau)*(w_dic-1)-w_tau-1];
 					}
 
+				}
 			dk = kk*(h_dic-1)*w_proc;
 			if(h_rank < h_world-1)
-				for(h_tau=0; h_tau < h_dic-1; h_tau++)
+				for(h_tau=0; h_tau < h_dic-1; h_tau++){
+					memcpy(srcZ + (h_dic-1+h_proc+h_tau)*w_srcZ + w_dic-1,
+							msg_in_lower + dk + h_tau*w_proc,
+							w_proc*sizeof(double));
 					for(w_tau=0; w_tau < w_proc; w_tau++){
-						srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
-							  w_dic-1+w_tau] =
-							msg_in_lower[dk + h_tau*w_proc + w_tau];
+						// srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
+						// 		w_dic-1+w_tau] =
+						// 		msg_in_lower[dk + h_tau*w_proc + w_tau];
 						kernelZ[h_tau*w_proc_S+w_tau] =
 							msg_in_lower[dk + (h_dic-1-h_tau)*w_proc-w_tau-1];
 					}
+				}
 
 			dk = kk*(h_dic-1)*(w_dic-1);
 			if(w_rank < w_world-1 && h_rank < h_world-1)
-				for(h_tau=0; h_tau < h_dic-1; h_tau++)
+				for(h_tau=0; h_tau < h_dic-1; h_tau++){
+					memcpy(srcZ + (h_dic-1+h_proc+h_tau)*w_srcZ + w_dic-1+w_proc,
+							msg_in_corner + dk + h_tau*(w_dic-1),
+							(w_dic-1)*sizeof(double));
 					for(w_tau=0; w_tau < w_dic-1; w_tau++){
-						srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
-							  w_dic-1+w_proc+w_tau] =
-							msg_in_corner[dk + h_tau*(w_dic-1) + w_tau];
+						// srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
+						//		w_dic-1+w_proc+w_tau] =
+						//		msg_in_corner[dk + h_tau*(w_dic-1) + w_tau];
 						kernelZ[h_tau*w_proc_S+w_tau] =
 							msg_in_corner[dk + (h_dic-1-h_tau)*(w_dic-1)-w_tau-1];
 					}
+				}
 			convolve(wsA, srcZ, kernel);
 
 			dk = (k*K+kk)*(2*h_dic-1)*(2*w_dic-1);
-  			for(s=0; s < (2*h_dic-1)*(2*w_dic-1); s++)
-  			 	A[dk+s] = wsA.dst[s];
+			memcpy(A+dk, wsA.dst, (2*h_dic-1)*(2*w_dic-1)*sizeof(double));
+			// for(s=0; s < (2*h_dic-1)*(2*w_dic-1); s++)
+			// 	A[dk+s] = wsA.dst[s];
 
 			// Apply correction?
 			double corr = 0;
+			if(world_rank == 0)
+				cout << "correction" << endl;
 			if(h_rank < h_world-1){
 				pdk = k*(h_dic-1)*w_proc;
 
-		 		// Dot product from msg_in_bottom and end of pt with
-		 		// lag (hs, ws)
-	  			for(int hs=0; hs< h_dic-1; hs ++)
-	  			 	for(int ws=0; ws< 2*w_dic-1; ws ++){
-			 			corr = 0;
+				// Dot product from msg_in_bottom and end of pt with
+				// lag (hs, ws)
+				for(int hs=0; hs< h_dic-1; hs ++)
+					for(int ws=0; ws< 2*w_dic-1; ws ++){
+						corr = 0;
 						for(h_tau=0; h_tau < h_dic-1-hs; h_tau++)
 							for(w_tau=max(w_dic-1-ws, 0);
 								w_tau < min(w_proc, w_proc+w_dic-1-ws);
@@ -1067,15 +1233,15 @@ void DICOD2D::_compute_AB(double* A, double* B){
 
 						A[dk + hs*(2*w_dic-1) + ws] += corr;
 					}
-		 	}
+			}
 			if(w_rank < w_world-1){
 				pdk = k*h_proc*(w_dic-1);
 
-		 		// Dot product from msg_in_bottom and end of pt with
-		 		// lag (hs, ws)
-	  			for(int hs=0; hs< 2*h_dic-1; hs ++)
-	  			 	for(int ws=0; ws< w_dic-1; ws ++){
-			 			corr = 0;
+				// Dot product from msg_in_bottom and end of pt with
+				// lag (hs, ws)
+				for(int hs=0; hs< 2*h_dic-1; hs ++)
+					for(int ws=0; ws< w_dic-1; ws ++){
+						corr = 0;
 						for(h_tau=max(h_dic-1-hs, 0);
 							h_tau < min(h_proc, h_proc+h_dic-1-hs);
 							h_tau++)
@@ -1089,15 +1255,15 @@ void DICOD2D::_compute_AB(double* A, double* B){
 
 						A[dk + hs*(2*w_dic-1) + ws] += corr;
 					}
-		 	}
+			}
 			if(w_rank < w_world-1 && h_rank < h_world-1){
 				pdk = k*(h_dic-1)*(w_dic-1);
 
-		 		// Dot product from msg_in_bottom and end of pt with
-		 		// lag (hs, ws)
-	  			for(int hs=0; hs< h_dic-1; hs ++)
-	  			 	for(int ws=0; ws< w_dic-1; ws ++){
-			 			corr = 0;
+				// Dot product from msg_in_bottom and end of pt with
+				// lag (hs, ws)
+				for(int hs=0; hs< h_dic-1; hs ++)
+					for(int ws=0; ws< w_dic-1; ws ++){
+						corr = 0;
 						for(h_tau=0; h_tau < h_dic-1-hs; h_tau++)
 							for(w_tau=0;w_tau < w_dic-1-ws;	w_tau++){
 								corr += msg_in_corner[pdk + h_tau*(w_dic-1)+w_tau] *
@@ -1109,7 +1275,9 @@ void DICOD2D::_compute_AB(double* A, double* B){
 
 						A[dk + hs*(2*w_dic-1) + ws] += corr;
 					}
-		 	}
+			}
+			if(world_rank == 0)
+				cout << "correction end" << endl;
 		}
 
 	}
@@ -1154,7 +1322,7 @@ void DICOD2D::_signal_end(){
 
 void DICOD2D::end(){
 	if((debug || DEBUG) && world_rank == 0)
-		cout << "DEBUG - MPI_Workers - flush queue" << endl;
+		cout << "DEBUG:jobs - flush queue" << endl;
 
 	_signal_end();
 
@@ -1163,7 +1331,7 @@ void DICOD2D::end(){
 	int size_msg, src, tag;
 	double* msg;
 	while(!(end_neigh[0] && end_neigh[1] && end_neigh[2] && end_neigh[3] &&
-		    end_neigh[4] && end_neigh[5] && end_neigh[6] && end_neigh[7])){
+			end_neigh[4] && end_neigh[5] && end_neigh[6] && end_neigh[7])){
 		COMM_WORLD.Probe(ANY_SOURCE, ANY_TAG, s);
 		size_msg = s.Get_count(DOUBLE);
 		src = s.Get_source();
@@ -1174,7 +1342,7 @@ void DICOD2D::end(){
 			end_neigh[(int) msg[1]] = true;
 		if(msg[0] == MSG_UP && !go)
 			cout << "WARNING - MPI_Worker" << world_rank
-				 <<" - Missed wake up" << endl;
+					<<" - Missed wake up" << endl;
 		delete[] msg;
 	}
 
@@ -1184,8 +1352,10 @@ void DICOD2D::end(){
 		messages.pop_front();
 	}
 	if((debug || DEBUG) && world_rank == 0)
-		cout << "DEBUG - MPI_Workers- Clean operation ok" << endl;
+		cout << "DEBUG:jobs- Clean operation ok" << endl;
 	parentComm->Barrier();
+
+	delete[] prev_i0;
 }
 
 // process the message queue
@@ -1199,6 +1369,8 @@ void DICOD2D::process_queue(){
 	int beta_off, dic_off, l_msg, s_DD, compt = 0;
 	int probe_success = 1;
 	unordered_map<int, int>::iterator it;
+
+	time_point t_procQ_start = chrono::high_resolution_clock::now();
 	while(COMM_WORLD.Iprobe(ANY_SOURCE, ANY_TAG, s)){
 		compt += 1;
 		size_msg = s.Get_count(DOUBLE);
@@ -1218,9 +1390,8 @@ void DICOD2D::process_queue(){
 				for(int i=0; i < l_msg; i++){
 					i_try = msg[2+i];
 					probe_result[i_try] ++;
-					if(probe_result[i_try] == world_size-1 && pause)
+					if(probe_result[i_try] >= world_size-1 && pause)
 						probe_success *= 2;
-
 				}
 				break;
 			case MSG_HIT_BARRIER:
@@ -1237,30 +1408,62 @@ void DICOD2D::process_queue(){
 				s_DD = (2*h_dic-1)*(2*w_dic-1);
 
 				// update beta localy
+				bool test = false;
 				for(k=0; k < K; k++){
 					beta_off = k*L_proc + h_beta_start*w_proc + w_beta_start;
 					dic_off = k*K*s_DD + k0*s_DD + DD_start;
 					for(h_tau=0; h_tau < h_ll; h_tau++){
-						for(w_tau=0; w_tau < w_ll; w_tau++)
+						for(w_tau=0; w_tau < w_ll; w_tau++){
 							beta[beta_off+w_tau] -= DD[dic_off+w_tau]*dz;
+							// if(fabs(pt[beta_off+w_tau]+beta[beta_off+w_tau])
+							// 		> max_adz)
+							// 	test = true;
+						}
 						beta_off += w_proc;
 						dic_off += 2*w_dic-1;
 					}
 				}
-				pause = false;
+				// if(test)
+				// 	cout << world_rank << " Received big jump from "
+				// 			<< ((int) msg[8]) << " at iter " << iter
+				// 			<< " from iter " << (int) msg[9]
+				// 			<< "(" << (int) msg[10] << ")"
+				// 			<< " : " << h_ll << ", " << w_ll
+				// 			<< " for " << (int) msg[3] << "/ " << h_proc
+				//			<< ", " << (int) msg[4] << "/ " << w_proc
+				//			<< " with " << dz<< endl;
+				pause = wrap_up;
 				n_zero = 0;
+				up = (int) msg[8];
+				up_h0 = h_beta_start;
+				up_w0 = w_beta_start;
 				probe_success = 0;
 				for(it=probe_result.begin(); it != probe_result.end(); it++)
 					it->second -= world_size;
 				break;
 		}
 		if(probe_success > 1 && pause){
+			if(world_rank == 0 && wrap_up)
+				cout << "STOP" << endl;
 			Ibroadcast(MSG_STOP);
 			go = false;
 		}
 		delete[] msg;
 	}
+	time_point t_procQ_end = chrono::high_resolution_clock::now();
+	d_duration time_span = chrono::duration_cast<d_duration>(
+		t_procQ_end - t_procQ_start);
+
+	// cout << scientific;
+	// cout.precision(3);
+	_clean_up();
+	if(time_span.count() > .04)
+		cout << "DEBUG:" << proc_name << ":job" << world_rank << " - spent "
+			<< time_span.count() << "s in process_queue and processed "
+			<< compt << " messages. Pending " << n_msg << endl;
+
 }
+
 void DICOD2D::Ibroadcast(int msg_t){
 	int sz = 2;
 	double* msg = new double[sz];
@@ -1275,8 +1478,13 @@ void DICOD2D::Ibroadcast(int msg_t){
 			msg[0] = MSG_REQ_PROBE;
 			msg[1] = i_try;
 	}
-	for(int i = 1; i < world_size; i ++)
-		COMM_WORLD.Send(msg, sz, DOUBLE, i, 3);
+	for(int i = 1; i < world_size; i ++){
+		Request req = COMM_WORLD.Isend(msg, sz, DOUBLE, i, 3);
+		reqs.push_back(req);
+		messages.push_back(NULL);
+		n_msg++;
+	}
+	messages.pop_back();
 	messages.push_back(msg);
 }
 void DICOD2D::probe_reply(){
@@ -1289,8 +1497,10 @@ void DICOD2D::probe_reply(){
 	for(it=probe_try.begin(), i=0;
 		it != probe_try.end(); it++, i++)
 		msg[i+2] = *it;
-	COMM_WORLD.Isend(msg, l_msg, DOUBLE, 0, 4);
+	Request req = COMM_WORLD.Isend(msg, l_msg, DOUBLE, 0, 4);
 	messages.push_back(msg);
+	reqs.push_back(req);
+	n_msg++;
 	probe_try.clear();
 }
 void DICOD2D::_send_msg(int dest, int msg_type, int arg, bool wait){
@@ -1300,24 +1510,50 @@ void DICOD2D::_send_msg(int dest, int msg_type, int arg, bool wait){
 	msg[1] = (double) arg;
 	if(dest > -1 && dest < world_size){
 		Request req = COMM_WORLD.Isend(msg, sz, DOUBLE,
-						 dest, TAG_MSG_SERVICE);
+							dest, TAG_MSG_SERVICE);
 		if(wait){
 			while(!req.Test())
 				this_thread::sleep_for(chrono::milliseconds(3*TEST_DELAY));
-
+			delete[] msg;
 		}
-		messages.push_back(msg);
+		else{
+			messages.push_back(msg);
+			reqs.push_back(req);
+			n_msg++;
+		}
+
 	}
 	else{
 		cout << "ERROR - MPI_Worker" << world_rank
-			 << " - tried to send a message to " << dest
-			 << "with arg " << arg << endl;
+				<< " - tried to send a message to " << dest
+				<< "with arg " << arg << endl;
 		delete[] msg;
 	}
+}
+
+void DICOD2D::_clean_up(){
+	list<double*>::iterator it_messages;
+	list<Request>::iterator it_reqs;
+	while(!reqs.empty() && reqs.front().Test()){
+		delete[] messages.front();
+		messages.pop_front();
+		reqs.pop_front();
+		n_msg--;
+	}
+
+	// for(it_messages = messages.begin(), it_reqs= reqs.begin();
+	// 	it_messages != messages.end();
+	// 	it_messages++, it_reqs++){
+	// 	if((*it_reqs).Test()){
+	// 		delete[] (*it_messages);
+	// 		*it_messages = NULL;
+	// 	}
+
+	// }
 }
 
 double DICOD2D::_get_time_span(){
 	time_point t2 = chrono::high_resolution_clock::now();
 	d_duration time_span = chrono::duration_cast<d_duration>(t2 - t_start);
-  	return time_span.count();
+	return time_span.count();
 }
