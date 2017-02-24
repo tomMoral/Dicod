@@ -1,10 +1,12 @@
-import matplotlib.pyplot as plt
 import numpy as np
 from time import time
 from sys import stdout as out
 from cdl.dicod2d import DICOD2D
-from joblib import Parallel, delayed
 from scipy.signal import fftconvolve
+from joblib import Parallel, delayed
+import matplotlib as mpl
+# mpl.use('Agg')
+import matplotlib.pyplot as plt
 
 
 def init_D(im, K, h_dic, w_dic, overlap=0, method='PCA'):
@@ -67,24 +69,27 @@ if __name__ == '__main__':
                         help='if set, display the resulting image')
     parser.add_argument('--ip', action='store_true',
                         help='if set, open an ipython terminal after')
+    parser.add_argument('--hostfile', type=str, default=None,
+                        help='set hostfile for MPI')
     args = parser.parse_args()
 
     # Construct the problem
     K = 64
-    w_dic = 16
-    h_dic = 16
-    hostfile = None
+    sigma = 10
+    w_dic = 12
+    h_dic = 12
     try:
         I = plt.imread("../datasets/images/standard_images/mandril_color.tif")
-        I = plt.imread("../datasets/images/standard_images/palace.png")
-        hostfile = 'hostfile'
+        # I = plt.imread("../datasets/images/standard_images/palace.png")
     except FileNotFoundError:
         I = plt.imread("../data/images/standard_images/mandril_color.tif")
 
-    im = I.swapaxes(0, 2)
-    m, M, tp = im.min(), im.max(), im.dtype
+    im0 = I.swapaxes(0, 2)
+    m, M, tp = im0.min(), im0.max(), im0.dtype
+    noise = np.random.normal(size=im0.shape)*sigma/255
+    im = im0 + noise
     im = 2*((im - m)/(M - m)) - 1
-    assert -1 <= im.min() < im.max() <= 1
+    # assert -1 <= im.min() < im.max() <= 1
 
     D = init_D(im, K, h_dic, w_dic, overlap=0, method='KM')
     from cdl.multivariate_convolutional_coding_problem_2d import \
@@ -109,48 +114,54 @@ if __name__ == '__main__':
     pb.compute_DD()
 
     # Intiate the algorithm
-    w_world = 1
-    n_jobs = 32  # *w_world
-    dcp = DICOD2D(debug=5, n_jobs=n_jobs, w_world=w_world, tol=5e-3,
-                  use_seg=25, t_max=2, i_max=n_jobs*1e7, hostfile=hostfile,
+    w_world = 6
+    n_jobs = 36  # *w_world
+    dcp = DICOD2D(debug=5, n_jobs=n_jobs, w_world=w_world, tol=1e-2, use_seg=4,
+                  t_max=90, i_max=n_jobs*1e7, hostfile=args.hostfile,
                   logging=True)
 
-    dcp.fit(pb)
-    print("cost: ", dcp.cost)
+    # dcp.fit(pb)
+    # print("cost: ", dcp.cost)
 
     # Dicitonary learning tryout
     ########################################
-    # for it in range(5):
-    #     dcp.fit(pb)
-    #     Dp = np.copy(D)
-    #     out.flush()
-    #     print('Iter {}: Cost={:.4f}; set_dict={}; nnzero={}'
-    #           ''.format(it, dcp.cost, set(pb.pt.nonzero()[0]),
-    #                     len(pb.pt.nonzero()[0])/(K*dcp.L)))
-    #     out.flush()
-    #     with Parallel(n_jobs=-1) as para:
-    #         cdu = delayed(conv_DU)
-    #         t = time()
-    #         for j in range(10):
-    #             dD = 0
-    #             for k in range(len(D)):
+    for it in range(5):
+        dcp.fit(pb)
+        Dp = np.copy(D)
+        out.flush()
+        print('Iter {}: Cost={:.4f}; set_dict={}; nnzero={}'
+              ''.format(it, dcp.cost, set(pb.pt.nonzero()[0]),
+                        len(pb.pt.nonzero()[0])/(K*dcp.L)))
+        out.flush()
+        with Parallel(n_jobs=-1) as para:
+            cdu = delayed(conv_DU)
+            t = time()
+            for j in range(10):
+                dD = 0
+                for k in range(len(D)):
 
-    #                 dA = para(cdu(A_kk, d_k)
-    #                           for d_k, A_kk in zip(pb.D, dcp.A[k]))
-    #                 dA = np.sum(dA, axis=0)
-    #                 nA = np.sqrt((dcp.A[k, k]*dcp.A[k, k]).sum())
-    #                 nA += nA == 0
-    #                 U = (dcp.B[k]-dA)/nA+pb.D[k]
-    #                 nU = np.mean(U*U, axis=0).sum(axis=-1).sum(axis=-1)
-    #                 U /= nU
-    #                 dD += abs(D[k] - U).sum()
-    #                 D[k] = U
-    #             print(dD)
-    #             if dD < 1e-2:
-    #                 break
-    #     print("{}: Update Dictionary in {:.2f}s".format(j, time()-t))
-    #     print('Ok:', abs(D).max())
-    #     out.flush()
+                    dA = para(cdu(A_kk, d_k)
+                              for d_k, A_kk in zip(pb.D, dcp.A[k]))
+                    dA = np.sum(dA, axis=0)
+                    nA = np.sqrt((dcp.A[k, k]*dcp.A[k, k]).sum())
+                    nA += nA == 0
+                    U = (dcp.B[k]-dA)/nA+pb.D[k]
+                    nU = np.mean(U*U, axis=0).sum(axis=-1).sum(axis=-1)
+                    U /= nU
+                    dD += abs(D[k] - U).sum()
+                    D[k] = U
+                print(dD)
+                if dD < 1e-4:
+                    break
+        dcp.tol *= .9
+        print("{}: Update Dictionary in {:.2f}s - end dD: {:.2f}"
+              "".format(j, time()-t, dD))
+        print('Ok:', abs(D).max())
+        print("tol: ", dcp.tol)
+        out.flush()
+
+        if dcp.cost > 1e6:
+            break
     ###########################################
 
     # import IPython
@@ -169,13 +180,21 @@ if __name__ == '__main__':
         h_world = n_jobs // w_world
         ll = np.linspace(-.5, dcp.h_cod-.5, h_world+1)
         plt.vlines(ll, -.5, dcp.w_cod-.5)
-        plt.show()
+        plt.subplots_adjust(0, 0, 1, 1)
+        # plt.savefig('../../output.pdf')
+        # plt.close()
         return imr
 
     if args.graph:
         try:
             imr = show_rec()
-        except:
+            residu = (imr-im0)*255
+            MSRE = np.sqrt(np.mean(residu*residu))
+            PSNR = 20*np.log(255/MSRE)
+            print("MSRE: {:.3f}; PSNR: {:.3f}".format(MSRE, PSNR))
+
+        except Exception as e:
+            print(e.__traceback__)
             import IPython
             IPython.embed()
     if args.ip:

@@ -2,11 +2,16 @@
 from mpi4py import MPI
 import numpy as np
 from time import time
-from toolbox.optim import _GradientDescent
+from toolboxTom.optim import _GradientDescent
 from os import path
+from toolboxTom.logger import Logger
 from .c_dicod.mpi_pool import get_reusable_pool
 
-from toolbox.logger import Logger
+if path.exists(path.join('/proc', 'acpi', 'bbswitch')):
+    # assert that the graphic card is on if bbswitch is detected
+    import os
+    assert 'BUMBLEBEE_SOCKET' in os.environ.keys()
+
 log = Logger('MPI_DCP')
 
 ALGO_GS = 0

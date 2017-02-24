@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import fftconvolve
 
-from toolbox.optim.problem import _Problem
+from toolboxTom.optim.problem import _Problem
 from joblib import Parallel, delayed
 
 
@@ -43,6 +43,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         self.lmbd = lmbd
         self.nonneg = False
         self.d = self.x.shape[0]
+        self._pool = Parallel(n_jobs=-1)
 
     def compute_DD(self, DD=None):
         self.DD = DD
@@ -89,9 +90,8 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         D = self._get_args(D, self.D)
         residual = self.reconstruct(pt) - x
         conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
-        _grad = Parallel(n_jobs=-1)(
-            [conv(residual, Dm, mode='valid') for Dm in D[:, :, ::-1]]
-        )
+        _grad = self._pool(conv(residual, Dm, mode='valid')
+                           for Dm in D[:, :, ::-1, ::-1])
         return np.mean(_grad, axis=1)
 
     def prox(self, pt=None, lmbd=None):
@@ -115,10 +115,8 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
 
         residual = self.reconstruct(pt=pt, D=D) - x
         conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
-        self._grad_D = Parallel(n_jobs=-1)([
-            conv(residual, z, mode='valid')
-            for z in pt[:, ::-1, ::-1]]
-        )
+        self._grad_D = self._pool(conv(residual, z, mode='valid')
+                                  for z in pt[:, ::-1, ::-1])
         self._grad_D = np.array(self._grad_D)
         return self._grad_D
 
@@ -148,8 +146,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         pt = self._get_args(pt, self.pt)
         D = self._get_args(D, self.D)
         conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
-        rec = Parallel(n_jobs=-1)([conv(zm, Dm, mode='full')
-                                   for Dm, zm in zip(D, pt)])
+        rec = self._pool([conv(zm, Dm, mode='full') for Dm, zm in zip(D, pt)])
         return np.sum(rec, axis=0)
 
     def _get_args(self, arg, default):
@@ -176,10 +173,29 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         zz[:K, h_dic-1:-h_dic+1, w_dic-1:-w_dic+1] = pt
         zz[K:, :h_sig, :w_sig] = x
         conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
-        A = Parallel(n_jobs=-1)([conv(zz, ptk, mode='valid')
-                                 for ptk in pt[:, ::-1, ::-1]])
+        A = self._pool([conv(zz, ptk, mode='valid')
+                                for ptk in pt[:, ::-1, ::-1]])
         A = np.array(A)
         self.A = A[:, :K]
         self.B = A[:, K:, :h_dic, :w_dic]
 
         return self.A, self.B
+
+    def __enter__(self, *args):
+        self._pool.__enter__(*args)
+
+    def __exit__(self, *args):
+        self._pool.__exit__(*args)
+
+    def __reduce__(self):
+        import copy
+        f, a, kw = super(MultivariateConvolutionalCodingProblem2D, self
+                         ).__reduce__()
+        kw = copy.copy(kw)
+        kw["_pool"] = None
+
+        return f, a, kw
+
+    def __setstate__(self, state):
+        self.__dict__ = state
+        self._pool = Parallel(n_jobs=-1)

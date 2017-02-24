@@ -65,7 +65,7 @@ class MPI_Pool(object):
         mpi_info = MPI.Info.Create()
         if self.hostfile is not None:
             mpi_info.Set("add-hostfile", self.hostfile)
-            mpi_info.Set("map_bynode", '1')
+            # mpi_info.Set("map_bynode", '1')
         self.comm = MPI.COMM_SELF.Spawn(
             self.c_prog, maxprocs=self.n_jobs,
             info=mpi_info)

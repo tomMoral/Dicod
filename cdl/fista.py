@@ -1,8 +1,8 @@
 import numpy as np
 
 
-from toolbox.optim import _GradientDescent
-from toolbox.logger import Logger
+from toolboxTom.optim import _GradientDescent
+from toolboxTom.logger import Logger
 
 log = Logger(name='Fista')
 
@@ -49,7 +49,7 @@ class FISTA(_GradientDescent):
     def _init_algo(self):
         self.pb.compute_DD()
         self.alpha = 1/self.pb.L
-        self.L = self.pb.L/10
+        self.L = self.pb.L
         self.yn = self.pb.pt
 
     def p_update(self):
@@ -59,14 +59,14 @@ class FISTA(_GradientDescent):
 
         self.pb._update(self._line_search())
 
-        #Update momentum information
+        # Update momentum information
         dpt = (self.pb.pt - xk1)
         tk1 = self._theta()
         self.yn = self.pb.pt + (self.tk-1)/tk1*dpt
         self.tk = tk1
 
         # Return dz
-        #return np.max(abs(dpt))
+        # return np.max(abs(dpt))
         return np.sqrt(np.sum(dpt*dpt))
 
     def _line_search(self):
@@ -82,20 +82,26 @@ class FISTA(_GradientDescent):
         fy = self.pb.x - self.pb.reconstruct(self.yn)
         fy = np.sum(fy*fy)/2
 
-        p = lambda l: self.pb.prox(self.yn - grad/l, lmbd/l)
-        d = lambda x: x - self.yn
-        Q = lambda x, dx, l: (fy + (dx*grad).sum() + l/2*l2(dx) +
-                              lmbd*l1(x))
-        cond = lambda x, dx, l: (self.pb.cost(x) <= Q(x, dx, l))
+        def prox(L):
+            return self.pb.prox(self.yn - grad/L, lmbd/L)
 
-        pz = p(L)
-        dz = d(pz)
+        def diff_y(x):
+            return x - self.yn
+
+        def Q(x, dx, L):
+            return (fy + (dx*grad).sum() + L/2*l2(dx) + lmbd*l1(x))
+
+        def cond(x, dx, L):
+            return (self.pb.cost(x) <= Q(x, dx, L))
+
+        pz = prox(L)
+        dz = diff_y(pz)
 
         while not cond(pz, dz, L) and not np.isclose(dz, 0).all():
             log.debug(str(self.pb.cost(pz)), Q(pz, dz, L))
             L *= self.eta
-            pz = p(L)
-            dz = d(pz)
+            pz = prox(L)
+            dz = diff_y(pz)
 
         self.L = L
         return pz

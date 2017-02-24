@@ -10,13 +10,15 @@ if __name__ == '__main__':
                         help='# max of process launched')
     parser.add_argument('-T', type=int, default=150,
                         help='Size of the problem')
+    parser.add_argument('-K', type=int, default=10,
+                        help='Number of dictionary elements')
     parser.add_argument('--debug', '-d', dest='d', type=int, default=0,
                         help='Debug level for the algorithm')
     parser.add_argument('--hostfile', type=str, default=None,
                         help='Hostfile to pass to MPI')
     parser.add_argument('--nrep', type=int, default=10,
                         help='# of repetition for each value of M')
-    parser.add_argument('--tmax', type=int, default=20,
+    parser.add_argument('--tmax', type=int, default=60,
                         help='Max time for each algorithm in sec')
     parser.add_argument('--save', type=str, default=None,
                         metavar='DIRECTORY', help='If present, save'
@@ -34,6 +36,8 @@ if __name__ == '__main__':
                         help='Convolutional dicitonary learning')
     parser.add_argument('--rand', action='store_true',
                         help='Convolutional dicitonary learning')
+    parser.add_argument('--run', type=str, nargs="+", default="all",
+                        help='list of jobs to compute')
     args = parser.parse_args()
 
     graphical_cost = None
@@ -42,17 +46,22 @@ if __name__ == '__main__':
 
     if args.jobs:
         from utils.iter_njobs import iter_njobs
-
+        run = []
+        for r in args.run:
+            try:
+                run += [int(r)]
+            except ValueError:
+                run += [r]
         iter_njobs(T=args.T, max_jobs=args.njobs,  n_rep=args.nrep,
-                   save_dir=args.save, i_max=5e6, t_max=7200,
+                   save_dir=args.save, i_max=5e6, t_max=args.tmax,
                    hostfile=args.hostfile, lgg=False, graphical_cost=None,
-                   debug=args.d)
+                   debug=args.d, seed=422742, run=args.run)
 
     if args.met:
         from utils.compare_methods import compare_met
 
-        compare_met(T=args.T, save_dir=args.save, i_max=5e6, t_max=args.tmax,
-                    n_jobs=args.njobs, hostfile=args.hostfile,
+        compare_met(T=args.T, K=args.K, save_dir=args.save, i_max=5e6,
+                    t_max=args.tmax, n_jobs=args.njobs, hostfile=args.hostfile,
                     graphical_cost=graphical_cost, display=args.no_display,
                     debug=args.d)
 

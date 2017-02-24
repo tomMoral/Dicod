@@ -1,12 +1,15 @@
+import datetime
 import numpy as np
+import os.path as osp
+from time import sleep
+
 from cdl.dicod import DICOD
 from utils.rand_problem import fun_rand_problem
-import os.path as osp
 
 
 def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
-               i_max=5e6, t_max=7200,  hostfile=None,
-               lgg=False, graphical_cost=None, debug=0):
+               i_max=5e6, t_max=7200,  hostfile=None, run='all',
+               lgg=False, graphical_cost=None, debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -35,6 +38,9 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
         hostfile for the openMPI API to connect to the other
         running server to spawn the processes over different
         nodes
+    run: list or str, optional (default: 'all')
+        if all, run all the possible runs. Else, it should be a list composed
+        of int for njobs to run or of str {n_jobs:nrep} for specific cases
     lgg: bool, optional (default: False)
         If set to true, enable the logging of the iteration cost
         during the run. It might slow down a bit the execution
@@ -44,6 +50,8 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
         function.
     debug: int, optional (default:0)
         The greater it is, the more verbose the algorithm
+    seed: int, optional (default:None)
+        seed the rng of numpy to obtain fixed set of problems
 
     '''
     common_args = dict(logging=lgg, log_rate='log1.6', i_max=i_max,
@@ -55,24 +63,36 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
     lmbd = 0.1
     noise_level = 1
 
+    if save_dir is not None and not osp.exists(save_dir):
+        import os
+        os.mkdir(save_dir)
+
+    rng = np.random.RandomState(seed)
+
     for j in range(n_rep):
-        pb = fun_rand_problem(T, S, K, d, lmbd, noise_level)
+        seed_pb = rng.randint(4294967295)
+        pb = fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=seed_pb)
 
         dcp = DICOD(pb, n_jobs=2,
                     **common_args)
 
         runtimes = []
-        n_jobs = np.logspace(1, np.log2(150), 20, base=2)[::-1]
-        n_jobs = [int(round(nj)) for nj in n_jobs if nj < max_jobs]
+        n_jobs = np.logspace(0, np.log2(75), 10, base=2)
+        n_jobs = [int(round(nj)) for nj in n_jobs if nj <= max_jobs]
         n_jobs = np.unique(n_jobs)
         n_jobs = n_jobs[::-1]
         for nj in n_jobs:
+            code_run = "{}:{}".format(nj, j)
+            if (run != 'all' and nj not in run and code_run not in run):
+                continue
+            if j < 5:
+                continue
             dcp.reset()
             pb.reset()
             dcp.n_jobs = nj
 
             dcp.fit(pb)
-            runtimes += [[dcp.runtime, dcp.runtime2]]
+            runtimes += [[dcp.runtime, dcp.t]]
             import time
             time.sleep(1)
             rt = runtimes[-1]
@@ -82,6 +102,8 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
                     f.write('Pb{},{},{},{}\n'.format(
                         j, nj, rt[0], rt[1]))
             print('='*79)
-            print('PB{}: End process with {} jobs  in {:.2f}s'
-                  ''.format(j, nj, rt[0]))
+            print('[{}] PB{}: End process with {} jobs  in {:.2f}s'
+                  ''.format(datetime.datetime.now().strftime("%I:%M"),
+                            j, nj, rt[0]))
             print('\n'+'='*79)
+            sleep(.5)

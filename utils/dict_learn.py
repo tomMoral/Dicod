@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 from utils.rand_problem import fun_rand_problems
 from cdl.dicod import DICOD
 
-from toolbox.logger import Logger
+from toolboxTom.logger import Logger
 log = Logger('Root')
 
 
@@ -125,6 +125,7 @@ def dict_learn(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
             gw = np.sum(grad*D, axis=-1)
             gg = np.sum(grad*grad, axis=-1)
             lmbd = min(np.min(.5/np.sqrt(gg-gw*gw)), lmbd)
+            assert not np.isnan(lmbd)
             alpha = lmbd*gw - np.sqrt(1-lmbd*lmbd*(gg-gw*gw))
             D *= alpha[:, :, None]
             D -= lmbd*grad

@@ -3,22 +3,16 @@ __pycache__
 *npy
 *pkl
 *pdf
-.*
-*egg*
-*ipynb
 
 # Project config
 *sublime*
 
 # Binaries
-/cdl/c_dicod/c_dicod
-/cdl/c_dicod/start_worker
-
-# Archives
-/cdl/old_cdl/
+cdl/c_dicod/c_dicod
+cdl/c_dicod/start_worker
 
 # Save experiences
-/save_exp
+save_exp
 
 # Config files
 hostfile

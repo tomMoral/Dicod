@@ -1,7 +1,7 @@
 import numpy as np
 
-from toolbox.optim import _GradientDescent
-from toolbox.logger import Logger
+from toolboxTom.optim import _GradientDescent
+from toolboxTom.logger import Logger
 log = Logger('SeqDICOD')
 
 

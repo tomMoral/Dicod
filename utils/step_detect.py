@@ -7,14 +7,14 @@ import matplotlib.pyplot as plt
 from utils.rand_problem import fun_step_problem
 from cdl.dicod import DICOD
 
-from toolbox.logger import Logger
+from toolboxTom.logger import Logger
 log = Logger('Root')
 
 
 def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
                 n_epoch=10, graphical_cost=None, save_dir=None,
                 debug=0):
-    '''Run DICOD algorithm for a certain problem with different value
+    '''Run DICOD algorithm for a certain problem with different ValueError
     for n_jobs and store the runtime in csv files if given a save_dir.
 
     Parameters

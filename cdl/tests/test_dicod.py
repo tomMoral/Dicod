@@ -86,7 +86,7 @@ def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = DICOD(pb, n_jobs=n_jobs, use_seg=n_seg,
+    dicod = DICOD(pb, n_jobs=n_jobs, use_seg=n_seg, i_max=1e5,
                   algorithm=algo, debug=5, patience=1000)
     dicod.fit(pb)
 
@@ -115,7 +115,7 @@ def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem2D(
             D, x, lmbd=0.002)
 
-    dicod = DICOD2D(n_jobs=n_jobs, use_seg=n_seg, w_world=n_jobs,
+    dicod = DICOD2D(n_jobs=n_jobs, use_seg=n_seg, w_world=n_jobs, i_max=1e5,
                     algorithm=algo, debug=5, patience=1000)
     dicod.fit(pb)
 
@@ -145,7 +145,7 @@ def test_dicod_2d_ligne(algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem2D(
             D, x, lmbd=0.002)
 
-    dicod = DICOD2D(n_jobs=n_jobs, w_world=n_jobs, use_seg=n_seg,
+    dicod = DICOD2D(n_jobs=n_jobs, w_world=n_jobs, use_seg=n_seg, i_max=1e5,
                     algorithm=algo, debug=5, patience=1000)
     dicod.fit(pb)
 

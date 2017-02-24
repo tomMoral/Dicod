@@ -301,8 +301,15 @@ double DICOD2D::_choose_coord_GS(int seg_h_start, int seg_h_end,
 		k_off += L_proc;
 	}
 	if(!isnormal(adz)){
-		cout << "Not normal dz : " << dz << " ak " << alpha_k[k0]
-				<< " beta_i " << beta[i0] << endl;
+		cout << "DEBUG:" << proc_name << ":job" << world_rank 
+			 << " - Not normal dz : " << dz << " ak " << alpha_k[k0]
+			 << " beta_i " << beta[i0] << endl;
+		dz = 0;
+	}
+	if(prev_i0[current_seg] == h0*w_proc+w0){
+		cout << "DEBUG:" << proc_name << ":job" << world_rank 
+			 << " - Not normal dz : " << dz << " ak " << alpha_k[k0]
+			 << " beta_i " << beta[i0] << endl;
 		dz = 0;
 	}
 	return dz;
@@ -929,7 +936,7 @@ void DICOD2D::_extended_point(double* out){
 				for(h_tau=params[2]; h_tau < params[3];
 					h_tau++, msg_val+=w_msg){
 					dk = (k*h_proc+h_tau)*w_proc + params[4];
-					memcpy(msg_val, pt+dk, w_msg);
+					memcpy(msg_val, pt+dk, w_msg*sizeof(double));
 				}
 			}
 			COMM_WORLD.Isend(msg, msg_size, DOUBLE, dst, TAG_MSG_AB);
@@ -953,8 +960,8 @@ void DICOD2D::_extended_point(double* out){
 					h_tau++, msg_val+=w_msg){
 					dk = k*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1));
 					dk += (h_tau + params[6]*(h_dic-1))*(w_proc+2*(w_dic-1));
-					dk += params[4] + params[7]*(h_dic-1);
-					memcpy(out+dk, msg_val, w_msg);
+					dk += params[4] + params[7]*(w_dic-1);
+					memcpy(out+dk, msg_val, w_msg*sizeof(double));
 				}
 			}
 		}
@@ -965,7 +972,7 @@ void DICOD2D::_extended_point(double* out){
 		for(h_tau=0; h_tau < h_proc; h_tau++, pt_val += w_proc){
 			dk = k*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1));
 			dk += (h_tau+h_dic-1)*(w_proc+2*(w_dic-1)) + w_dic-1;
-			memcpy(out+dk, pt_val, w_proc);
+			memcpy(out+dk, pt_val, w_proc*sizeof(double));
 		}
 
 	COMM_WORLD.Barrier();
@@ -977,320 +984,59 @@ void DICOD2D::_extended_point(double* out){
 // Compute z*z' and z*x for grad_D computation
 void DICOD2D::_compute_AB(double* A, double* B){
 
-	double* test = new double[K*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1))];
-	_extended_point(test);
-	delete[] test;
-
-	if(world_rank==0)
-		cout << "DEBUG:jobs - Passed delete barrier" << endl;
+	double* extended_pt = new double[K*(h_proc+2*(h_dic-1))*(w_proc+2*(w_dic-1))];
+	_extended_point(extended_pt);
 
 	// Declare buffer and loop variables
 	Workspace wsA, wsB;
-	double *msg_left = NULL, *msg_up = NULL, *msg_corner = NULL;
-	double *msg_in_right = NULL, *msg_in_lower = NULL, *msg_in_corner = NULL;
-	double *msg = NULL, *out = NULL;
-	double *src = NULL, *srcZ = NULL, *kernel = NULL, *kernelZ = NULL;
-	double *val_pt, *val_kern, *val_ptZ, *val_kernZ;
-	int msg_size;
-	int dk, ds, k, kk, s, tau, d, pdk;
-	int h_tau, w_tau, cod_off, msg_off;
 	int h_srcZ, w_srcZ;
-
-	double *ptZ = new double[K*h_proc_S*w_proc_S];
-	fill(ptZ, ptZ+K*h_proc_S*w_proc_S, 0);
-	val_pt = pt; val_ptZ = ptZ;
-	for(k=0; k < K; k++){
-		for(h_tau=0; h_tau < h_proc; h_tau++){
-			for(w_tau=0; w_tau < w_proc; w_tau++)
-				*val_ptZ++ = *val_pt++;
-			val_ptZ += w_dic-1;
-		}
-		val_ptZ += (h_dic-1)*w_proc_S;
-	}
-
-	// send The S-1 first terms to the right neighbor
-	if(w_rank > 0){
-		msg_size = K*h_proc*(w_dic-1);
-		msg_left = new double[msg_size];
-		for(k=0; k < K; k++){
-			for(h_tau=0; h_tau < h_proc; h_tau++){
-				msg_off = k*h_proc*(w_dic-1) + h_tau*(w_dic-1);
-				cod_off = k*L_proc + h_tau*w_proc;
-				for(w_tau=0; w_tau < w_dic-1; w_tau++)
-					msg_left[msg_off+w_tau] = pt[cod_off+w_tau];
-			}
-		}
-		COMM_WORLD.Isend(msg_left, msg_size, DOUBLE, world_rank-1, TAG_MSG_AB);
-	}
-	// send The S-1 first terms to the upper neighbor
-	if(h_rank > 0){
-		msg_size = K*(h_dic-1)*w_proc;
-		msg_up = new double[msg_size];
-		for(k=0; k < K; k++){
-			for(h_tau=0; h_tau < h_dic-1; h_tau++){
-				msg_off = k*(h_dic-1)*w_proc + h_tau*w_proc;
-				cod_off = k*L_proc + h_tau*w_proc;
-				for(w_tau=0; w_tau < w_proc; w_tau++)
-					msg_up[msg_off+w_tau] = pt[cod_off+w_tau];
-			}
-		}
-		COMM_WORLD.Isend(msg_up, msg_size, DOUBLE, world_rank-w_world,
-							TAG_MSG_AB);
-	}
-	// send upper-left corner to the upper-left neighbor
-	if(h_rank > 0 && w_rank > 0){
-		msg_size = K*(h_dic-1)*(w_dic-1);
-		msg_corner = new double[msg_size];
-		for(k=0; k < K; k++){
-			for(h_tau=0; h_tau < h_dic-1; h_tau++){
-				msg_off = k*(h_dic-1)*(w_dic-1) + h_tau*(w_dic-1);
-				cod_off = k*L_proc + h_tau*w_proc;
-				for(w_tau=0; w_tau < w_dic-1; w_tau++)
-					msg_corner[msg_off+w_tau] = pt[cod_off+w_tau];
-			}
-		}
-		COMM_WORLD.Isend(msg_corner, msg_size, DOUBLE, world_rank-w_world-1,
-							TAG_MSG_AB);
-	}
-
-	// receive message from right neighbor
-	if(w_rank < w_world-1){
-		msg_size = K*h_proc*(w_dic-1);
-		msg_in_right = new double[msg_size];
-		COMM_WORLD.Recv(msg_in_right, msg_size, DOUBLE, world_rank+1,
-						TAG_MSG_AB);
-		val_ptZ = ptZ+w_proc;
-		val_pt = msg_in_right;
-		for(k=0; k < K; k++){
-			for(h_tau=0; h_tau < h_proc; h_tau++){
-				for(w_tau=0; w_tau < w_dic-1; w_tau++)
-					*val_ptZ++ = *val_pt++;
-				val_ptZ += w_proc;
-			}
-			val_ptZ += (h_dic-1)*w_proc_S;
-		}
-	}
-	// Receive message from lower neighbor
-	if(h_rank < h_world-1){
-		msg_size = K*(h_dic-1)*w_proc;
-		msg_in_lower = new double[msg_size];
-		COMM_WORLD.Recv(msg_in_lower, msg_size, DOUBLE, world_rank+w_world,
-						TAG_MSG_AB);
-		val_ptZ = ptZ+h_proc*w_proc_S;
-		val_pt = msg_in_lower;
-		for(k=0; k < K; k++){
-			for(h_tau=0; h_tau < h_dic-1; h_tau++){
-				for(w_tau=0; w_tau < w_proc; w_tau++)
-					*val_ptZ++ = *val_pt++;
-				val_ptZ += w_dic-1;
-			}
-			val_ptZ += h_proc*w_proc_S;
-		}
-	}
-	// Receive message from lower-right neighbor
-	if(w_rank < w_world-1 && h_rank < h_world-1){
-		msg_size = K*(h_dic-1)*(w_dic-1);
-		msg_in_corner = new double[msg_size];
-		COMM_WORLD.Recv(msg_in_corner, msg_size, DOUBLE, world_rank+w_world+1,
-						TAG_MSG_AB);
-		val_ptZ = ptZ+h_proc*w_proc_S+w_proc;
-		val_pt = msg_in_corner;
-		for(k=0; k < K; k++){
-			for(h_tau=0; h_tau < h_dic-1; h_tau++){
-				for(w_tau=0; w_tau < w_dic-1; w_tau++)
-					*val_ptZ++ = *val_pt++;
-				val_ptZ += w_proc;
-			}
-			val_ptZ += h_proc*w_proc_S+w_proc;
-		}
-	}
-	COMM_WORLD.Barrier();
-	delete[] msg_left;
-	delete[] msg_up;
-	delete[] msg_corner;
+	double *kernel = NULL, *val_pt, *val_kern;
+	int dk, d, k, kk, h_tau, w_tau;
 
 	// Init buffers and fft workspace
 	w_srcZ = w_proc + 2*(w_dic-1);
 	h_srcZ = h_proc + 2*(h_dic-1);
 	init_workspace(wsA, LINEAR_VALID, h_srcZ, w_srcZ, h_proc, w_proc);
 	init_workspace(wsB, LINEAR_VALID, h_proc_S, w_proc_S, h_proc, w_proc);
-	srcZ = new double[h_srcZ*w_srcZ];
-	fill(srcZ, srcZ + h_srcZ*w_srcZ, 0);
 	kernel = new double[L_proc];
-	kernelZ = new double[h_proc_S*w_proc_S];
-	fill(kernelZ, kernelZ + h_proc_S*w_proc_S, 0);
 
 	//Commpute A and B with fast convolution
 	for(k = 0; k < K; k++){
 
-		// dk = (k+1)*L_proc-1;
-		// for(tau=0; tau < L_proc; tau++)
-		// 	kernel[tau] = pt[dk-tau];
-
+		// Reverse Z as a kernel
 		val_pt = pt+(k+1)*L_proc-1;
 		val_kern = kernel;
-		double *val_kernZ = kernelZ;
 		for(h_tau=h_dic-1; h_tau < h_proc_S; h_tau++){
 			for(w_tau=w_dic-1; w_tau < w_proc_S; w_tau++){
-				*val_kern++ = *val_pt;
-				*val_kernZ++ = *val_pt--;
+				*val_kern++ = *val_pt--;
 			}
-			val_kernZ += w_dic-1;
 		}
-
 
 		// B[k, d] = conv(rev(Z[k]), x[d])
 		for(d=0; d < dim; d++){
-			src = &sig[d*h_proc_S*w_proc_S];
-			convolve(wsB, src, kernel);
+			convolve(wsB, sig + d*h_proc_S*w_proc_S, kernel);
 			dk = (k*dim + d)*S;
 			memcpy(B+dk, wsB.dst, S*sizeof(double));
 		}
 
-		// A[k, k'][s] = conv(rev(Z[k]), Z[k'])[s]
-		// pour s \in [0, S]
+		// A[k, k'][s] = conv(rev(Z[k]), Z[k'])[s] for s \in [-S, S]
 		for(kk=0; kk < K; kk++){
-			dk = kk*L_proc;
-			for(h_tau=0; h_tau < h_proc; h_tau++)
-				memcpy(srcZ + (h_dic-1+h_tau)*w_srcZ + w_dic-1,
-						pt + dk + h_tau*w_proc,
-						w_proc*sizeof(double));
 
-
-			dk = kk*h_proc*(w_dic-1);
-			if(w_rank < w_world-1)
-				for(h_tau=0; h_tau < h_proc; h_tau++){
-					memcpy(srcZ + (h_dic-1+h_tau)*w_srcZ + w_dic-1 + w_proc,
-							msg_in_right + dk + h_tau*(w_dic-1),
-							(w_dic-1)*sizeof(double));
-					for(w_tau=0; w_tau < w_dic-1; w_tau++){
-						// srcZ[(h_dic-1+h_tau)*w_srcZ +
-						//		w_dic-1+w_proc+w_tau] =
-						//		msg_in_right[dk + h_tau*(w_dic-1) + w_tau];
-						kernelZ[h_tau*w_proc_S+w_tau] =
-							msg_in_right[dk + (h_proc-h_tau)*(w_dic-1)-w_tau-1];
-					}
-
-				}
-			dk = kk*(h_dic-1)*w_proc;
-			if(h_rank < h_world-1)
-				for(h_tau=0; h_tau < h_dic-1; h_tau++){
-					memcpy(srcZ + (h_dic-1+h_proc+h_tau)*w_srcZ + w_dic-1,
-							msg_in_lower + dk + h_tau*w_proc,
-							w_proc*sizeof(double));
-					for(w_tau=0; w_tau < w_proc; w_tau++){
-						// srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
-						// 		w_dic-1+w_tau] =
-						// 		msg_in_lower[dk + h_tau*w_proc + w_tau];
-						kernelZ[h_tau*w_proc_S+w_tau] =
-							msg_in_lower[dk + (h_dic-1-h_tau)*w_proc-w_tau-1];
-					}
-				}
-
-			dk = kk*(h_dic-1)*(w_dic-1);
-			if(w_rank < w_world-1 && h_rank < h_world-1)
-				for(h_tau=0; h_tau < h_dic-1; h_tau++){
-					memcpy(srcZ + (h_dic-1+h_proc+h_tau)*w_srcZ + w_dic-1+w_proc,
-							msg_in_corner + dk + h_tau*(w_dic-1),
-							(w_dic-1)*sizeof(double));
-					for(w_tau=0; w_tau < w_dic-1; w_tau++){
-						// srcZ[(h_dic-1+h_proc+h_tau)*w_srcZ +
-						//		w_dic-1+w_proc+w_tau] =
-						//		msg_in_corner[dk + h_tau*(w_dic-1) + w_tau];
-						kernelZ[h_tau*w_proc_S+w_tau] =
-							msg_in_corner[dk + (h_dic-1-h_tau)*(w_dic-1)-w_tau-1];
-					}
-				}
-			convolve(wsA, srcZ, kernel);
+			//convolve(wsA, srcZ, kernel);
+			dk = kk*h_srcZ*w_srcZ;
+			convolve(wsA, extended_pt+dk, kernel);
 
 			dk = (k*K+kk)*(2*h_dic-1)*(2*w_dic-1);
 			memcpy(A+dk, wsA.dst, (2*h_dic-1)*(2*w_dic-1)*sizeof(double));
-			// for(s=0; s < (2*h_dic-1)*(2*w_dic-1); s++)
-			// 	A[dk+s] = wsA.dst[s];
 
-			// Apply correction?
-			double corr = 0;
-			if(world_rank == 0)
-				cout << "correction" << endl;
-			if(h_rank < h_world-1){
-				pdk = k*(h_dic-1)*w_proc;
-
-				// Dot product from msg_in_bottom and end of pt with
-				// lag (hs, ws)
-				for(int hs=0; hs< h_dic-1; hs ++)
-					for(int ws=0; ws< 2*w_dic-1; ws ++){
-						corr = 0;
-						for(h_tau=0; h_tau < h_dic-1-hs; h_tau++)
-							for(w_tau=max(w_dic-1-ws, 0);
-								w_tau < min(w_proc, w_proc+w_dic-1-ws);
-								w_tau++){
-								corr += msg_in_lower[pdk + h_tau*w_proc+w_tau] *
-										ptZ[kk*h_proc_S*w_proc_S +
-											(h_proc-(h_dic-1)+hs+h_tau)*w_proc_S +
-											w_tau-(w_dic-1)+ws];
-
-							}
-
-						A[dk + hs*(2*w_dic-1) + ws] += corr;
-					}
-			}
-			if(w_rank < w_world-1){
-				pdk = k*h_proc*(w_dic-1);
-
-				// Dot product from msg_in_bottom and end of pt with
-				// lag (hs, ws)
-				for(int hs=0; hs< 2*h_dic-1; hs ++)
-					for(int ws=0; ws< w_dic-1; ws ++){
-						corr = 0;
-						for(h_tau=max(h_dic-1-hs, 0);
-							h_tau < min(h_proc, h_proc+h_dic-1-hs);
-							h_tau++)
-							for(w_tau=0;w_tau < w_dic-1-ws;	w_tau++){
-								corr += msg_in_right[pdk + h_tau*(w_dic-1)+w_tau] *
-										ptZ[kk*h_proc_S*w_proc_S +
-											(h_tau-(h_dic-1)+hs)*w_proc_S +
-											w_proc-(w_dic-1)+ws+w_tau];
-
-							}
-
-						A[dk + hs*(2*w_dic-1) + ws] += corr;
-					}
-			}
-			if(w_rank < w_world-1 && h_rank < h_world-1){
-				pdk = k*(h_dic-1)*(w_dic-1);
-
-				// Dot product from msg_in_bottom and end of pt with
-				// lag (hs, ws)
-				for(int hs=0; hs< h_dic-1; hs ++)
-					for(int ws=0; ws< w_dic-1; ws ++){
-						corr = 0;
-						for(h_tau=0; h_tau < h_dic-1-hs; h_tau++)
-							for(w_tau=0;w_tau < w_dic-1-ws;	w_tau++){
-								corr += msg_in_corner[pdk + h_tau*(w_dic-1)+w_tau] *
-										ptZ[kk*h_proc_S*w_proc_S +
-											(h_proc-(h_dic-1)+hs+h_tau)*w_proc_S +
-											w_proc-(w_dic-1)+ws+w_tau];
-
-							}
-
-						A[dk + hs*(2*w_dic-1) + ws] += corr;
-					}
-			}
-			if(world_rank == 0)
-				cout << "correction end" << endl;
 		}
-
 	}
 
 	// Clear buffers and workspace
 	clear_workspace(wsA);
 	clear_workspace(wsB);
-	delete[] msg_in_right;
-	delete[] msg_in_lower;
-	delete[] msg_in_corner;
 	delete[] kernel;
-	delete[] kernelZ;
-	delete[] srcZ;
+	delete[] extended_pt;
 
 }
 
