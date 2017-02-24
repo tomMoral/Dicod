@@ -3,6 +3,8 @@ __pycache__
 *npy
 *pkl
 *pdf
+*.egg-info
+.cache
 
 # Project config
 *sublime*
