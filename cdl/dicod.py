@@ -8,12 +8,9 @@ from os import path
 from toolboxTom.logger import Logger
 from .c_dicod.mpi_pool import get_reusable_pool
 
-if path.exists(path.join('/proc', 'acpi', 'bbswitch')):
-    # assert that the graphic card is on if bbswitch is detected
-    import os
-    assert 'BUMBLEBEE_SOCKET' in os.environ.keys()
 
 log = Logger('MPI_DCP')
+log.restart()
 
 ALGO_GS = 0
 ALGO_RANDOM = 1
@@ -209,7 +206,7 @@ class DICOD(_GradientDescent):
         for i, it in enumerate(iterations):
             _log = np.empty(3*it)
             self.comm.Recv([_log, MPI.DOUBLE], i, tag=300+i)
-            updates += [(round(_log[3*i]), _log[3*i+2]) for i in range(it)]
+            updates += [(int(_log[3*i]), _log[3*i+2]) for i in range(it)]
             updates_t += [_log[3*i+1] for i in range(it)]
 
         i0 = np.argsort(updates_t)
@@ -225,7 +222,7 @@ class DICOD(_GradientDescent):
                 next_log = self.log_rate(it+1)
             j, du = updates[i]
             t = updates_t[i]+self.t_init
-            pb.pt[j//L, j%L] += du
+            pb.pt[j//L, j % L] += du
         log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
                     iteration=it, fun=pb.cost,
                     graph_cost=self.graph_cost, time=self.runtime+self.t_init)

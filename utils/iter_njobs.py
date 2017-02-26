@@ -2,6 +2,8 @@ import datetime
 import numpy as np
 import os.path as osp
 from time import sleep
+import matplotlib.pyplot as plt
+from collections import defaultdict
 
 from cdl.dicod import DICOD
 from utils.rand_problem import fun_rand_problem
@@ -66,6 +68,8 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
     if save_dir is not None and not osp.exists(save_dir):
         import os
         os.mkdir(save_dir)
+    elif save_dir is None:
+        save_dir = "."
 
     rng = np.random.RandomState(seed)
 
@@ -84,8 +88,6 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
         for nj in n_jobs:
             code_run = "{}:{}".format(nj, j)
             if (run != 'all' and nj not in run and code_run not in run):
-                continue
-            if j < 5:
                 continue
             dcp.reset()
             pb.reset()
@@ -107,3 +109,63 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
                             j, nj, rt[0]))
             print('\n'+'='*79)
             sleep(.5)
+
+
+    min_njobs = 0
+    fig, axs = plt.subplots(1, 1, sharex=True, num="scaling")
+    with open(osp.join(save_dir, "runtimes_{}.csv".format(T))) as f:
+        lines = f.readlines()
+    arr = defaultdict(lambda: [])
+    for l in lines:
+        r = list(map(float, l.split(',')[1:]))
+        arr[r[0]] += [r]
+    axk = axs
+    l, L = 1e6, 0
+    for k, v in arr.items():
+        if k > min_njobs:
+            V = np.mean(v, axis=0)[1]
+            axk.scatter(k, V, color="b")
+            l, L = min(l, V), max(L, V)
+    axk.set_xscale('log')
+    axk.set_yscale('log')
+    n_jobs = np.array([k for k in arr.keys() if k > min_njobs]).astype(int)
+    n_jobs.sort()
+    m, M = n_jobs.min(), n_jobs.max()
+    t = np.logspace(np.log2(m), np.log2(2 * M), 200, base=2)
+    R0 = np.mean(arr[m], axis=0)[1]
+
+    axk.plot(t, R0 * m / t, 'k--')
+    axk.plot(t, R0 * (m / t)**2, 'r--')
+    scaling = R0 / (t * t * np.maximum(1 - 2 * (t / T)**2 * (
+        1 + 2 * (t / T)**2)**(t / 2 - 1), 1e-5))
+    break_p = np.where((scaling[2:] > scaling[1:-1]) &
+                       (scaling[:-2] > scaling[1:-1]))[0] + 1
+
+    axk.plot(t, scaling, "g-.", label="theoretical speedup")
+    axk.vlines(t[break_p], .1, 100000, "g", linestyle="-", linewidth=2)
+    axk.set_xlim((m * .7, 1.7 * M))
+    axk.set_ylim((.5 * l, 1.7 * L))
+    axk.set_title(f"$T={T}$", fontsize="x-large")
+    # if i == 0:
+    axk.legend(fontsize="large")
+    axk.set_ylim((.2 * l, 1.7 * L))
+    tt = 8
+    axk.text(tt, .4 * R0 * (m / tt)**2, "quadratic", rotation=-22)
+    axk.text(tt, R0 * m / tt, "linear", rotation=-14, bbox=dict(
+        facecolor="white", edgecolor="white"))
+
+    axk.text(.9 * t[break_p], .7 * R0 * m / tt, "$M^*$", rotation=0,
+             bbox=dict(facecolor="w", edgecolor="w"))
+    axk.minorticks_off()
+
+    axk.set_xticks(n_jobs)
+    axk.set_xticklabels(n_jobs)
+    axk.set_xlabel("# cores $M$", fontsize="x-large")
+    axk.set_ylabel("Runtime (s)", fontsize="x-large")
+    axk.set_xticks([])
+    axk.set_xticklabels([], [])
+    axk.set_yticks([])
+    axk.set_yticklabels([], [])
+    plt.subplots_adjust(left=.1, right=.99, top=.95, bottom=.1)
+    plt.show()
+    input()

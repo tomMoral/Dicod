@@ -4,7 +4,6 @@ from time import sleep
 
 from cdl.dicod import DICOD
 from cdl.fista import FISTA
-from cdl.fcsc import FCSC
 from cdl.feature_sign_search import FSS
 
 from toolboxTom.logger import Logger
@@ -57,7 +56,6 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
     algos['CD'] = (DICOD(
         pb, n_jobs=1, hostfile=hostfile, **common_args), 'rd-')
     algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
-    algos['FCSC'] = (FCSC(pb, tau=1.5, **common_args), 'ks--')
     algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
     algos['SeqDICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
         pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
@@ -78,15 +76,15 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
         log.info(name)
         algo.fit(pb)
         log.process_queue()
-        sleep(2)
+        sleep(1)
 
     curves = {}
-
     if not display:
         import matplotlib as mpl
         mpl.use('Agg')
 
     def display_results():
+        print(log.output.log_objects.keys())
         import matplotlib.pyplot as plt
         tlim = [1e-1, 1e-1]
         base_cost = pb.cost(pb.x0)
@@ -147,14 +145,17 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
         plt.subplots_adjust(top=.97, left=.1, bottom=.1, right=.98)
 
         plt.show()
-    import IPython
-    IPython.embed()
+    if debug > 1:
+        import IPython
+        IPython.embed()
+
     if display:
-        input()
+        display_results()
+        input("Press Enter to quit.")
 
     if save_dir is not None:
         plt.figure('Time')
-        plt.savefig(osp.join(save_dir, 'cost_time_T{}.pdf'.format(T)),
+        plt.savefig(osp.join(save_dir, 'cost_time_T{T}.pdf'.format(T)),
                     dpi=150)
         plt.figure('Iteration')
         plt.savefig(osp.join(save_dir, 'cost_iter_T{}.pdf'.format(T)),
