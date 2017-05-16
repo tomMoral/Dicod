@@ -10,7 +10,7 @@ from .multivariate_convolutional_coding_problem import next_fast_len
 log = Logger(name='FCSC')
 
 l1 = lambda x: np.sum(np.abs(x))
-l2 = lambda x: np.sum(x*x)
+l2 = lambda x: np.sum(x * x)
 
 
 MU_MAX = 1e5
@@ -37,22 +37,22 @@ class FCSC(_GradientDescent):
         Set verbosity level
     """
     def __init__(self, problem, tau=1.05, debug=0, tol2=1e-16, **kwargs):
-        log.set_level(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
+        log.set_level(max(3 - debug, 1) * 10)
+        debug = max(debug - 1, 0)
         super(FCSC, self).__init__(
             problem, debug=debug, **kwargs)
 
         self.tau = tau
         self.tol = tol2
 
-        self.name = 'FCSC_'+str(self.id)
+        self.name = 'FCSC_' + str(self.id)
 
     def _init_algo(self):
         X = self.pb.x  # d, T
         D = self.pb.D  # K, d, S
         self.z = self.pb.pt  # K, L
 
-        self.K, self.d = (K, d) = D.shape[0], self.pb.d
+        self.K, self.d = K, _ = D.shape[0], self.pb.d
         self.z_slice = [slice(0, d) for d in self.z.shape]
         self.beta = self.pb.lmbd
 
@@ -93,7 +93,6 @@ class FCSC(_GradientDescent):
     def p_update(self):
         '''Update the pt in the objective direction
         '''
-        z_old = np.copy(self.z)
         self._z_subproblem()
 
         self._t_subproblem()
@@ -103,8 +102,6 @@ class FCSC(_GradientDescent):
 
         self.mu_t = min(self.tau * self.mu_t, MU_MAX)
         self.pb.pt = self.z
-        # Return dz
-        # return np.max(abs(dpt))
         return ((self.z - self.t)**2).mean()
 
     def _z_subproblem(self):
@@ -118,7 +115,7 @@ class FCSC(_GradientDescent):
     def _t_subproblem(self):
         if self.mu_t > 0:
             self.t = self.lambda_t / self.mu_t + self.z
-            self.t [:] = self._prox(self.t, self.beta / self.mu_t)
+            self.t[:] = self._prox(self.t, self.beta / self.mu_t)
         else:
             self.t[:] = 0
 
@@ -135,20 +132,20 @@ class FCSC(_GradientDescent):
         lmbd = self.pb.lmbd
         grad = self.pb.grad(self.yn)
         if self.fixe:
-            return self.pb.prox(self.yn - self.alpha*grad,
-                                lmbd*self.alpha)
+            return self.pb.prox(self.yn - self.alpha * grad,
+                                lmbd * self.alpha)
 
         fy = self.pb.x - self.pb.reconstruct(self.yn)
-        fy = np.sum(fy*fy)/2
+        fy = np.sum(fy * fy) / 2
 
         def prox(L):
-            return self.pb.prox(self.yn - grad/L, lmbd/L)
+            return self.pb.prox(self.yn - grad / L, lmbd / L)
 
         def diff_y(x):
             return x - self.yn
 
         def Q(x, dx, L):
-            return (fy + (dx*grad).sum() + L/2*l2(dx) + lmbd*l1(x))
+            return (fy + (dx * grad).sum() + L / 2 * l2(dx) + lmbd * l1(x))
 
         def cond(x, dx, L):
             return (self.pb.cost(x) <= Q(x, dx, L))
@@ -169,9 +166,9 @@ class FCSC(_GradientDescent):
         '''Update the momentum coefficient
         '''
         if self.f_theta == 'k2':
-            return 2/(self.t+3)
+            return 2 / (self.t + 3)
         elif self.f_theta == 'fista':
-            return (1 + np.sqrt(1+4*self.tk*self.tk))/2
+            return (1 + np.sqrt(1 + 4 * self.tk * self.tk)) / 2
         elif type(self.f_theta) == float:
-            return 1-self.f_theta
+            return 1 - self.f_theta
         return 0.2
