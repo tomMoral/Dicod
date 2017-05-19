@@ -10,7 +10,7 @@ if __name__ == '__main__':
                         help='# max of process launched')
     parser.add_argument('-T', type=int, default=150,
                         help='Size of the problem')
-    parser.add_argument('-K', type=int, default=10,
+    parser.add_argument('-K', type=int, default=100,
                         help='Number of dictionary elements')
     parser.add_argument('--debug', '-d', dest='d', type=int, default=0,
                         help='Debug level for the algorithm')
@@ -52,7 +52,7 @@ if __name__ == '__main__':
                 run += [int(r)]
             except ValueError:
                 run += [r]
-        iter_njobs(T=args.T, max_jobs=args.njobs,  n_rep=args.nrep,
+        iter_njobs(T=args.T, max_jobs=args.njobs, n_rep=args.nrep,
                    save_dir=args.save, i_max=5e6, t_max=args.tmax,
                    hostfile=args.hostfile, lgg=False, graphical_cost=None,
                    debug=args.d, seed=422742, run=args.run)

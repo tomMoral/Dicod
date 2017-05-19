@@ -52,7 +52,7 @@ class FCSC(_GradientDescent):
         D = self.pb.D  # K, d, S
         self.z = self.pb.pt  # K, L
 
-        self.K, self.d = K, _ = D.shape[0], self.pb.d
+        self.K, self.d = K, _ = D.shape[0], self.pb.d  # noqa: F841
         self.z_slice = [slice(0, d) for d in self.z.shape]
         self.beta = self.pb.lmbd
 
@@ -96,7 +96,7 @@ class FCSC(_GradientDescent):
         self._z_subproblem()
 
         self._t_subproblem()
-        self.lambda_t += self.mu_t * (self.z - self.t)
+        self.lambda_t += self.z - self.t
         self.lambda_fft = fft(self.lambda_t, n=self.fft_shape).reshape(
             (self.K, -1))
 
@@ -105,16 +105,16 @@ class FCSC(_GradientDescent):
         return ((self.z - self.t)**2).mean()
 
     def _z_subproblem(self):
-        K = self.D_fft.shape[0]
-        A = self.mu_t * np.eye(K) + self.DtD_fft.swapaxes(0, 1).T
-        b = (self.Dtx_fft + self.mu_t * self.t_fft - self.lambda_fft).T
+        A = self.mu_t * np.eye(self.K) + np.transpose(self.DtD_fft,
+                                                      axes=(2, 0, 1))
+        b = (self.Dtx_fft + self.mu_t * (self.t_fft - self.lambda_fft)).T
         self.z_fft = LA.solve(A, b).T
         self.z = ifft(self.z_fft.reshape(self.z_fft_shape)
                       )[self.z_slice]
 
     def _t_subproblem(self):
         if self.mu_t > 0:
-            self.t = self.lambda_t / self.mu_t + self.z
+            self.t = self.lambda_t + self.z
             self.t[:] = self._prox(self.t, self.beta / self.mu_t)
         else:
             self.t[:] = 0

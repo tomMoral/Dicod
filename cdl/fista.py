@@ -44,11 +44,10 @@ class FISTA(_GradientDescent):
         self.tk = 1
         self.f_theta = f_theta
 
-        self.name = 'Fista_'+str(self.id)
+        self.name = 'Fista_' + str(self.id)
 
     def _init_algo(self):
-        self.pb.compute_DD()
-        self.alpha = 1/self.pb.L
+        self.alpha = 1 / self.pb.L
         self.L = self.pb.L
         self.yn = self.pb.pt
 
@@ -62,12 +61,12 @@ class FISTA(_GradientDescent):
         # Update momentum information
         dpt = (self.pb.pt - xk1)
         tk1 = self._theta()
-        self.yn = self.pb.pt + (self.tk-1)/tk1*dpt
+        self.yn = self.pb.pt + (self.tk - 1) / tk1 * dpt
         self.tk = tk1
 
         # Return dz
         # return np.max(abs(dpt))
-        return np.sqrt(np.sum(dpt*dpt))
+        return np.sqrt(np.sum(dpt * dpt))
 
     def _line_search(self):
         '''Line search for the maximal possible update
@@ -76,20 +75,20 @@ class FISTA(_GradientDescent):
         lmbd = self.pb.lmbd
         grad = self.pb.grad(self.yn)
         if self.fixe:
-            return self.pb.prox(self.yn - self.alpha*grad,
-                                lmbd*self.alpha)
+            return self.pb.prox(self.yn - self.alpha * grad,
+                                lmbd * self.alpha)
 
         fy = self.pb.x - self.pb.reconstruct(self.yn)
-        fy = np.sum(fy*fy)/2
+        fy = np.sum(fy * fy) / 2
 
         def prox(L):
-            return self.pb.prox(self.yn - grad/L, lmbd/L)
+            return self.pb.prox(self.yn - grad / L, lmbd / L)
 
         def diff_y(x):
             return x - self.yn
 
         def Q(x, dx, L):
-            return (fy + (dx*grad).sum() + L/2*l2(dx) + lmbd*l1(x))
+            return (fy + (dx * grad).sum() + L / 2 * l2(dx) + lmbd * l1(x))
 
         def cond(x, dx, L):
             return (self.pb.cost(x) <= Q(x, dx, L))
@@ -110,9 +109,9 @@ class FISTA(_GradientDescent):
         '''Update the momentum coefficient
         '''
         if self.f_theta == 'k2':
-            return 2/(self.t+3)
+            return 2 / (self.t + 3)
         elif self.f_theta == 'fista':
-            return (1 + np.sqrt(1+4*self.tk*self.tk))/2
+            return (1 + np.sqrt(1 + 4 * self.tk * self.tk)) / 2
         elif type(self.f_theta) == float:
-            return 1-self.f_theta
+            return 1 - self.f_theta
         return 0.2

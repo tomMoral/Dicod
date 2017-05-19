@@ -1,5 +1,4 @@
 import numpy as np
-from scipy import fftpack
 from numpy.fft import rfft as fft, irfft as ifft
 
 from toolboxTom.optim.problem import _Problem
@@ -32,7 +31,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
             self.x = self.x[None, :]
         size = None
         if z0 is None:
-            size = (self.D.shape[0], self.x.shape[-1]-self.D.shape[-1]+1)
+            size = (self.D.shape[0], self.x.shape[-1] - self.D.shape[-1] + 1)
         super(MultivariateConvolutionalCodingProblem, self).__init__(
             z0, size=size, **kwargs)
         self.M, self.d, self.K = self.D.shape
@@ -49,8 +48,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
                                  for dk, dk1 in zip(d, d1)]
                                 for d1 in self.D]
                                for d in self.D[:, :, ::-1]], axis=2)
-        self.L = np.sqrt(np.sum(self.DD*self.DD, axis=0).sum(axis=0)).sum()
-        # self.L = np.sqrt(np.sum(self.DD*self.DD, axis=0).sum(axis=0)).max()
+
         return self.DD
 
     def _compute_constant(self):
@@ -78,32 +76,27 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         # Store extra dimensions
         self.T = p * np.prod(X_shape)
 
-    def update_D(self, dD, D=None, DD=None):
+    def update_D(self, dD, D=None):
         if D is None:
             D = self.D
             if dD is not None:
                 D = D + dD
-            # D /= np.sqrt(np.sum(D*D, axis=2))[:, :, np.newaxis]
         self.D = D
-        self.L = np.sqrt(np.mean(self.D*self.D))
-        if DD is None:
-            self.compute_DD()
-        else:
-            self.DD = DD
-        return self.D, self.DD
+        self._compute_constant()
+        return self.D
 
     def Er(self, pt):
         '''Commpute the reconstruction error
         '''
         res = self.x - self.reconstruct(pt)
-        return (res*res).sum()/(2*self.d)
+        return (res * res).sum() / (2 * self.d)
 
     def cost(self, pt=None):
         '''Compute the cost at the given point
         '''
         if pt is None:
             pt = self.pt
-        return self.Er(pt) + self.lmbd*np.sum(abs(pt))/pt.shape[-1]
+        return self.Er(pt) + self.lmbd * np.sum(abs(pt))
 
     def grad_slow(self, pt=None):
         '''Compute the gradient at the given point
@@ -138,9 +131,9 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         if lmbd is None:
             lmbd = self.lmbd
         if self.nonneg:
-            return np.maximum(pt-lmbd, 0)
+            return np.maximum(pt - lmbd, 0)
         else:
-            return np.sign(pt)*np.maximum(abs(pt)-lmbd, 0)
+            return np.sign(pt) * np.maximum(abs(pt) - lmbd, 0)
 
     def grad_D(self, pt):
         residual = self.reconstruct(pt) - self.x
@@ -217,11 +210,12 @@ def next_fast_len(target):
         return target
 
     # Quickly check if it's already a power of 2
-    if not (target & (target-1)):
+    if not (target & (target - 1)):
         return target
 
     # Get result quickly for small sizes, since FFT itself is similarly fast.
     if target <= hams[-1]:
+        from scipy.fftpack.helper import bisect_left
         return hams[bisect_left(hams, target)]
 
     match = float('inf')  # Anything found will be smaller

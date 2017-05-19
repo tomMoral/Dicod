@@ -9,6 +9,7 @@
 #include "dicod.h"
 
 #include <iostream>
+#include <iomanip>
 #include <stdlib.h>
 #include <math.h>
 #include "convolution_fftw.h"
@@ -26,6 +27,9 @@ using namespace FFTW_Convolution;
 DICOD::DICOD(Intercomm* _parentComm){
 	// Init time measurement for initialization
 	t_start = chrono::high_resolution_clock::now();
+
+	// setup the stdout
+	cout << fixed << setprecision(2);
 
 	parentComm = _parentComm;
 
@@ -97,7 +101,7 @@ void DICOD::receive_task(){
 	delete[] constants;
 
 	if(world_rank == 0 && (DEBUG || debug))
-		cout << "DEBUG - MPI_worker - Start with algoirhtm : "
+		cout << "DEBUG - MPI_worker - Start with algorihtm : "
 			 << ((ALGO_GS==algo)?"Gauss-Southwell":"Random") << endl;
 
 	L = T-S+1;   // Size of the code
@@ -109,7 +113,10 @@ void DICOD::receive_task(){
 	// Receive the signal to process
 	delete[] sig;
 	sig = new double[L_proc_S*dim];
+	// cout << world_rank << "waiting for " << 100+world_rank 
+	// 	 << " size: " << L_proc_S*dim << endl;
 	parentComm->Recv(sig, L_proc_S*dim, DOUBLE, 0, 100+world_rank);
+	// cout << world_rank << "received" << endl;
 	confirm_array(parentComm, sig[0], sig[L_proc_S*dim-1]);
 
 	// Init algo and wait for everyone
@@ -394,6 +401,13 @@ bool DICOD::stop(double dz){
 		if(runtime == 0)
 			runtime = seconds;
 		COMM_WORLD.Barrier();
+	}
+	if(world_rank == 0 && (debug || DEBUG) &&  iter % 1000 == 0){
+		double progress = max(iter * 100.0 / i_max, seconds * 100.0 / t_max);
+		progress = max( progress, tol / dz);
+	    cout << "\rDEBUG - MPI_worker - Progress " << setw(2)
+			 << progress << "%    " << flush;
+
 	}
 	return _stop;
 }

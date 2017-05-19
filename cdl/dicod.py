@@ -4,7 +4,6 @@ import numpy as np
 from time import time
 
 from toolboxTom.optim import _GradientDescent
-from os import path
 from toolboxTom.logger import Logger
 from .c_dicod.mpi_pool import get_reusable_pool
 
@@ -48,8 +47,8 @@ class DICOD(_GradientDescent):
     def __init__(self, pb, n_jobs=1, use_seg=1, hostfile=None,
                  logging=False, debug=0, positive=False,
                  algorithm=ALGO_GS, patience=1000, **kwargs):
-        log.set_level(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
+        log.set_level(max(3 - debug, 1) * 10)
+        debug = max(debug - 1, 0)
         super(DICOD, self).__init__(pb, debug=debug, **kwargs)
         self.debug = debug
         self.n_jobs = n_jobs
@@ -59,7 +58,7 @@ class DICOD(_GradientDescent):
         self.positive = 1 if positive else 0
         self.algorithm = algorithm
         self.patience = 1000
-        if self.name == '_GD'+str(self.id):
+        if self.name == '_GD' + str(self.id):
             self.name = 'MPI_DCP' + str(self.n_jobs) + '_' + str(self.id)
         print('Logger', log.level)
 
@@ -88,8 +87,8 @@ class DICOD(_GradientDescent):
                                         info=mpi_info)'''
         self._pool = get_reusable_pool(self.n_jobs, self.hostfile)
         self.comm = self._pool.comm
-        self._pool.mng_bcast(np.array([3]*4).astype('i'))
-        log.debug('Created pool of worker in {:.4}s'.format(time()-t))
+        self._pool.mng_bcast(np.array([3] * 4).astype('i'))
+        log.debug('Created pool of worker in {:.4}s'.format(time() - t))
 
         # Send the job to process
         self.send_task(DD)
@@ -100,11 +99,11 @@ class DICOD(_GradientDescent):
         pb = self.pb
         K, d, S = self.K, self.d, self.S
         T = pb.x.shape[1]
-        L = T-S+1
+        L = T - S + 1
 
         # Share constants
         pb.compute_DD(DD=DD)
-        alpha_k = np.sum(np.mean(pb.D*pb.D, axis=1), axis=1)
+        alpha_k = np.sum(np.mean(pb.D * pb.D, axis=1), axis=1)
         alpha_k += (alpha_k == 0)
         self.t_init = time() - self.t_start
 
@@ -115,7 +114,7 @@ class DICOD(_GradientDescent):
         # Send the constants of the algorithm
         N = np.array([float(d), float(K), float(S), float(T),
                       self.pb.lmbd, self.tol, float(self.t_max),
-                      self.i_max/self.n_jobs, float(self.debug),
+                      self.i_max / self.n_jobs, float(self.debug),
                       float(self.logging), float(self.use_seg),
                       float(self.positive), float(self.algorithm),
                       float(self.patience)],
@@ -124,13 +123,15 @@ class DICOD(_GradientDescent):
 
         # Share the work between the processes
         sig = np.array(pb.x, dtype='d')
-        L_proc = L//self.n_jobs + 1
+        L_proc = L // self.n_jobs + 1
         expect = []
         for i in range(self.n_jobs):
-            end = min(T, (i+1)*L_proc+S-1)
-            self.comm.Send([sig[:, i*L_proc:end].flatten(),
-                            MPI.DOUBLE], i, tag=100+i)
-            expect += [sig[0, i*L_proc], sig[-1, end-1]]
+            end = min(T, (i + 1) * L_proc + S - 1)
+            # print("Sending work to ", i, "with tag", 100 + i,
+            #       "size:", sig[:, i * L_proc:end].flatten().size)
+            self.comm.Send([sig[:, i * L_proc:end].flatten(),
+                            MPI.DOUBLE], i, tag=100 + i)
+            expect += [sig[0, i * L_proc], sig[-1, end - 1]]
         self.t_start = time()
         self._confirm_array(expect)
         self.L, self.L_proc = L, L_proc
@@ -144,7 +145,7 @@ class DICOD(_GradientDescent):
         #reduce_pt
         self._gather()
         if type(self.t) == int:
-            self.t = time()-self.t_start
+            self.t = time() - self.t_start
         return
 
         log.debug("DICOD - Clean end")

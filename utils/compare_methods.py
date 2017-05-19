@@ -5,6 +5,7 @@ from time import sleep
 from cdl.dicod import DICOD
 from cdl.fista import FISTA
 from cdl.feature_sign_search import FSS
+from cdl.fcsc import FCSC
 
 from toolboxTom.logger import Logger
 log = Logger('Root')
@@ -45,31 +46,36 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
                        t_max=t_max, graphical_cost=graphical_cost,
                        debug=debug, tol=1e-3)
     S = 200
-    K = 10
     d = 7
     lmbd = 0.1
     noise_level = .1
     pb = fun_rand_problem(T, S, K, d, lmbd, noise_level)
 
+    if save_dir is not None:
+        save_dir = osp.join("save_exp", save_dir)
+        assert osp.exists(save_dir)
+
     from collections import OrderedDict
     algos = OrderedDict()
-    algos['CD'] = (DICOD(
-        pb, n_jobs=1, hostfile=hostfile, **common_args), 'rd-')
-    algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
-    algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
-    algos['SeqDICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
-        pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
-        'c^-'
-    )
-    algos['DICOD$_{{{}}}$'.format(n_jobs//2)] = (DICOD(
-        pb, n_jobs=n_jobs//2, hostfile=hostfile, **common_args),
+    algos['DICOD$_{{{}}}$'.format(n_jobs // 2)] = (DICOD(
+        pb, n_jobs=n_jobs // 2, hostfile=hostfile, **common_args),
         'ms-'
     )
     algos['DICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
         pb, n_jobs=n_jobs, hostfile=hostfile, **common_args),
         'bH-'
     )
+    algos['CD'] = (DICOD(
+        pb, n_jobs=1, hostfile=hostfile, **common_args), 'rd-')
+    algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
+    # algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
+    algos['FCSC'] = (FCSC(pb, tau=1.001, **common_args), 'k.-')
+    algos['SeqDICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
+        pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
+        'c^-'
+    )
 
+    curves = {}
     for name, (algo, _) in algos.items():
         pb.reset()
         print('\n\n')
@@ -77,8 +83,22 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
         algo.fit(pb)
         log.process_queue()
         sleep(1)
+        i = int(str(algo).split('_')[-1])
+        cost = log.output.log_objects['cost{}'.format(i)]
+        t = log.output.log_objects['cost{}_t'.format(i)]
+        t = [4e-2] + t
+        cost = [cost[0]] + cost
 
-    curves = {}
+        it = log.output.log_objects['cost{}_i'.format(i)]
+
+        curves[name] = (it, t, cost)
+
+    if save_dir is not None:
+        import pickle
+        with open(osp.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K)),
+                  'wb') as f:
+            pickle.dump(curves, f)
+
     if not display:
         import matplotlib as mpl
         mpl.use('Agg')
@@ -86,26 +106,20 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
     def display_results():
         print(log.output.log_objects.keys())
         import matplotlib.pyplot as plt
-        tlim = [1e-1, 1e-1]
+
+        T_min = 1
+        tlim = [T_min, 1e-1]
         base_cost = pb.cost(pb.x0)
-        clim = [base_cost, base_cost*1.1]
-        ilim = [0, 0]
-        for (name, (algo, styl)) in algos.items():
-            i = int(str(algo).split('_')[-1])
-            cost = log.output.log_objects['cost{}'.format(i)]
-            t = log.output.log_objects['cost{}_t'.format(i)]
-            t = [4e-2] + t
-            cost = [cost[0]] + cost
+        clim = [base_cost, base_cost * 1.1]
+        ilim = [7e-1, 0]
+        for (name, (it, t, cost)) in curves.items():
 
-            it = log.output.log_objects['cost{}_i'.format(i)]
+            clim[0] = min(clim[0], cost[-1] * .9)
+            tlim[0] = min(tlim[0], t[1] * .9)
+            tlim[1] = max(tlim[1], t[-1] * 1.1)
+            ilim[1] = max(ilim[1], it[-1] * 1.1)
 
-            curves[name] = (it, t, cost)
-
-            clim[0] = min(clim[0], cost[-1]*.9)
-            tlim[0] = min(tlim[0], t[1]*.9)
-            tlim[1] = max(tlim[1], t[-1]*1.1)
-            ilim[1] = max(ilim[1], it[-1]*1.1)
-
+            styl = algos[name][1]
             plt.figure('Time')
             plt.loglog(t, cost, styl, label=name, linewidth=2,
                        markersize=9)
@@ -113,15 +127,9 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
             plt.loglog(it, cost[1:], styl, label=name, linewidth=2,
                        markersize=9)
 
-        import pickle
-        if save_dir is not None:
-            with open(osp.join(save_dir, 'cost_curves_T{}.pkl'.format(T)),
-                      'wb') as f:
-                pickle.dump(curves, f)
-
         # Format the figures
         plt.figure('Iteration')
-        plt.hlines([clim[0]/.9], ilim[0], ilim[1],
+        plt.hlines([clim[0] / .9], ilim[0], ilim[1],
                    linestyles='--', colors='k')
         plt.legend(fontsize=16)
         plt.xlabel('# iteration', fontsize=18)
@@ -133,7 +141,7 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
         plt.subplots_adjust(top=.97, left=.1, bottom=.1, right=.98)
 
         plt.figure('Time')
-        plt.hlines([clim[0]/.9], tlim[0], tlim[1],
+        plt.hlines([clim[0] / .9], tlim[0], tlim[1],
                    linestyles='--', colors='k')
         plt.legend(fontsize=16)
         plt.xlabel('Time (s)', fontsize=18)
@@ -144,19 +152,20 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
         plt.yticks(size=14)
         plt.subplots_adjust(top=.97, left=.1, bottom=.1, right=.98)
 
+        if save_dir is not None:
+            import matplotlib.pyplot as plt
+            plt.figure('Time')
+            plt.savefig(osp.join(save_dir, 'cost_time_T{}_K{}.pdf'.format(T, K)),
+                        dpi=150)
+            plt.figure('Iteration')
+            plt.savefig(osp.join(save_dir, 'cost_iter_T{}_K{}.pdf'.format(T, K)),
+                        dpi=150)
         plt.show()
     if debug > 1:
         import IPython
         IPython.embed()
 
-    if display:
-        display_results()
-        input("Press Enter to quit.")
+    display_results()
 
-    if save_dir is not None:
-        plt.figure('Time')
-        plt.savefig(osp.join(save_dir, 'cost_time_T{T}.pdf'.format(T)),
-                    dpi=150)
-        plt.figure('Iteration')
-        plt.savefig(osp.join(save_dir, 'cost_iter_T{}.pdf'.format(T)),
-                    dpi=150)
+    if display:
+        input("Press Enter to quit.")

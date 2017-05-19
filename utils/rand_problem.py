@@ -10,24 +10,47 @@ DEBUG = False
 
 def fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=None):
     rng = RandomState(seed)
-    rho = K/(d*S)
-    t = np.arange(S)/S
-    D = [[10*rng.rand()*np.sin(2*np.pi*K*rng.rand()*t +
-                               (0.5-rng.rand())*np.pi)
+    rho = K / (d * S)
+    D = rng.normal(scale=10.0, size=(K, d, S))
+    D = np.array(D)
+    nD = np.sqrt((D * D).sum(axis=-1, keepdims=True))
+    D /= nD + (nD == 0)
+
+    Z = (rng.rand(K, (T - 1) * S + 1) < rho).astype(np.float64)
+    Z *= rng.normal(scale=10, size=(K, (T - 1) * S + 1))
+
+    X = np.array([[np.convolve(zk, dk, 'full') for dk in Dk]
+                  for Dk, zk in zip(D, Z)]).sum(axis=0)
+    X += noise_level * np.random.normal(size=X.shape)
+
+    z0 = np.zeros((K, (T - 1) * S + 1))
+    pb = MultivariateConvolutionalCodingProblem(
+        D, X, z0=z0, lmbd=lmbd)
+    pb.compute_DD()
+    return pb
+
+
+def fun_rand_problem_old(T, S, K, d, lmbd, noise_level, seed=None):
+    rng = RandomState(seed)
+    rho = K / (d * S)
+    t = np.arange(S) / S
+    D = [[10 * rng.rand() * np.sin(2 * np.pi * K * rng.rand() * t +
+          (0.5 - rng.rand()) * np.pi)
           for _ in range(d)]
          for _ in range(K)]
     D = np.array(D)
-    nD = np.sqrt((D*D).sum(axis=-1))[:, :, np.newaxis]
+    nD = np.sqrt((D * D).sum(axis=-1))[:, :, np.newaxis]
     D /= nD + (nD == 0)
-    Z = (rng.rand(K, (T-1)*S+1) < rho)*rng.rand(K, (T-1)*S+1)*10
+    Z = (rng.rand(K, (T - 1) * S + 1) < rho)
+    Z *= rng.normal(scale=10, size=(K, (T - 1) * S + 1))
     # shape_z = K, (T-1)*S+1
     # Z = (rng.rand(*shape_z) < rho)*rng.normal(size=shape_z)*10
 
     X = np.array([[np.convolve(zk, dk, 'full') for dk in Dk]
                   for Dk, zk in zip(D, Z)]).sum(axis=0)
-    X += noise_level*np.random.normal(size=X.shape)
+    X += noise_level * np.random.normal(size=X.shape)
 
-    z0 = np.zeros((K, (T-1)*S+1))
+    z0 = np.zeros((K, (T - 1) * S + 1))
     pb = MultivariateConvolutionalCodingProblem(
         D, X, z0=z0, lmbd=lmbd)
     pb.compute_DD()
