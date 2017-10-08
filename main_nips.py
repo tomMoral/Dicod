@@ -7,7 +7,7 @@ from cdl.multivariate_convolutional_coding_problem \
 from utils.rand_problem import fun_rand_problem
 
 if __name__ == '__main__':
-    from toolboxTom.ogger import Logger
+    from toolboxTom.logger import Logger
     log = Logger(name='root', levl=20)
     import argparse
     parser = argparse.ArgumentParser('Test For CCP')
