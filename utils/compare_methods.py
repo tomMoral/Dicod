@@ -44,12 +44,12 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
     '''
     common_args = dict(logging=True, log_rate='log1.6', i_max=i_max,
                        t_max=t_max, graphical_cost=graphical_cost,
-                       debug=debug, tol=1e-3)
+                       debug=debug, tol=1e-4)
     S = 200
     d = 7
-    lmbd = 0.1
+    lmbd = 1
     noise_level = .1
-    pb = fun_rand_problem(T, S, K, d, lmbd, noise_level)
+    pb = fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=42)
 
     if save_dir is not None:
         save_dir = osp.join("save_exp", save_dir)
@@ -57,25 +57,41 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
 
     from collections import OrderedDict
     algos = OrderedDict()
-    algos['DICOD$_{{{}}}$'.format(n_jobs // 2)] = (DICOD(
-        pb, n_jobs=n_jobs // 2, hostfile=hostfile, **common_args),
-        'ms-'
-    )
-    algos['DICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
-        pb, n_jobs=n_jobs, hostfile=hostfile, **common_args),
-        'bH-'
-    )
-    algos['CD'] = (DICOD(
-        pb, n_jobs=1, hostfile=hostfile, **common_args), 'rd-')
-    algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
+    # algos['DICOD$_{{{}}}$'.format(n_jobs // 2)] = (DICOD(
+    #     pb, n_jobs=n_jobs // 2, hostfile=hostfile, **common_args),
+    #     'ms-'
+    # )
+    # algos['DICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
+    #     pb, n_jobs=n_jobs, hostfile=hostfile, **common_args),
+    #     'bH-'
+    # )
+    # algos['CD'] = (DICOD(
+    #     pb, n_jobs=1, hostfile=hostfile, **common_args), 'rd-')
+    # algos['RCD'] = (DICOD(
+    #     pb, algorithm=1, n_jobs=1, hostfile=hostfile, patience=5e5,
+    #     **common_args), 'cd-')
+    # algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
     # algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
-    algos['FCSC'] = (FCSC(pb, tau=1.001, **common_args), 'k.-')
-    algos['SeqDICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
-        pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
-        'c^-'
-    )
+    algos['FCSC'] = (FCSC(pb, tau=1.01, **common_args), 'k.-')
+    # algos['SeqDICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
+    #     pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
+    #     'c^-'
+    # )
+    # algos['SeqDICOD$_{{{}}}$'.format(n_jobs * 10)] = (DICOD(
+    #     pb, n_jobs=1, use_seg=n_jobs * 10, hostfile=hostfile, **common_args),
+    #     'c^-'
+    # )
 
     curves = {}
+
+    if save_dir is not None:
+        import pickle
+        try:
+            fname = osp.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K))
+            with open(fname, 'rb') as f:
+                curves = pickle.load(f)
+        except FileNotFoundError:
+            pass
     for name, (algo, _) in algos.items():
         pb.reset()
         print('\n\n')
@@ -93,24 +109,33 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
 
         curves[name] = (it, t, cost)
 
-    if save_dir is not None:
-        import pickle
-        with open(osp.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K)),
-                  'wb') as f:
-            pickle.dump(curves, f)
+        if save_dir is not None:
+            import pickle
+            # Try loading previous values
+            try:
+                fname = osp.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K))
+                with open(fname, 'rb') as f:
+                    o_curves = pickle.load(f)
+                o_curves[name] = curves[name]
+                curves = o_curves
+            except:
+                pass
+            with open(fname, 'wb') as f:
+                pickle.dump(o_curves, f)
 
     if not display:
         import matplotlib as mpl
         mpl.use('Agg')
 
-    def display_results():
+    def display_results(EPS=1):
         print(log.output.log_objects.keys())
         import matplotlib.pyplot as plt
 
         T_min = 1
         tlim = [T_min, 1e-1]
         base_cost = pb.cost(pb.x0)
-        clim = [base_cost, base_cost * 1.1]
+        clim = [EPS * .9, base_cost * 1.1]
+        c_min = min([c[2][-1] for c in curves.values()]) - EPS
         ilim = [7e-1, 0]
         for (name, (it, t, cost)) in curves.items():
 
@@ -121,15 +146,15 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
 
             styl = algos[name][1]
             plt.figure('Time')
-            plt.loglog(t, cost, styl, label=name, linewidth=2,
+            plt.loglog(t, cost - c_min, styl, label=name, linewidth=2,
                        markersize=9)
             plt.figure('Iteration')
-            plt.loglog(it, cost[1:], styl, label=name, linewidth=2,
+            plt.loglog(it, cost[1:] - c_min, styl, label=name, linewidth=2,
                        markersize=9)
 
         # Format the figures
         plt.figure('Iteration')
-        plt.hlines([clim[0] / .9], ilim[0], ilim[1],
+        plt.hlines([EPS], ilim[0], ilim[1],
                    linestyles='--', colors='k')
         plt.legend(fontsize=16)
         plt.xlabel('# iteration', fontsize=18)
@@ -141,7 +166,7 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
         plt.subplots_adjust(top=.97, left=.1, bottom=.1, right=.98)
 
         plt.figure('Time')
-        plt.hlines([clim[0] / .9], tlim[0], tlim[1],
+        plt.hlines([EPS], tlim[0], tlim[1],
                    linestyles='--', colors='k')
         plt.legend(fontsize=16)
         plt.xlabel('Time (s)', fontsize=18)

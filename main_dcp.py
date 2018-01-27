@@ -1,3 +1,5 @@
+from cdl.dicod import ALGO_GS, ALGO_RANDOM
+
 
 
 if __name__ == '__main__':
@@ -28,14 +30,20 @@ if __name__ == '__main__':
     parser.add_argument('--jobs', action='store_true',
                         help='Compute the runtime for different number '
                              'of cores')
+    parser.add_argument('--rcd', action='store_true',
+                        help='Uses the random selection in CD')
+    parser.add_argument('--seg', action='store_true',
+                        help='Uses locally greedy selection in CD')
     parser.add_argument('--met', action='store_true',
                         help='Compute the optimization algorithms')
     parser.add_argument('--no-display', action='store_false',
                         help='Compute the optimization algorithms')
     parser.add_argument('--step', action='store_true',
-                        help='Convolutional dicitonary learning')
+                        help='Convolutional dictionary learning with signals '
+                        'from humans walking.')
     parser.add_argument('--rand', action='store_true',
-                        help='Convolutional dicitonary learning')
+                        help='Convolutional dictionary learning with randomly '
+                        'generated signals.')
     parser.add_argument('--run', type=str, nargs="+", default="all",
                         help='list of jobs to compute')
     args = parser.parse_args()
@@ -46,21 +54,24 @@ if __name__ == '__main__':
 
     if args.jobs:
         from utils.iter_njobs import iter_njobs
-        run = []
-        for r in args.run:
-            try:
-                run += [int(r)]
-            except ValueError:
-                run += [r]
+        algorithm = ALGO_RANDOM if args.rcd else ALGO_GS
+        # # Extract njobs in list of str
+        # run = []
+        # for r in args.run:
+        #     try:
+        #         run += [int(r)]
+        #     except ValueError:
+        #         run += [r]
         iter_njobs(T=args.T, max_jobs=args.njobs, n_rep=args.nrep,
-                   save_dir=args.save, i_max=5e6, t_max=args.tmax,
+                   save_dir=args.save, i_max=5e8, t_max=args.tmax,
                    hostfile=args.hostfile, lgg=False, graphical_cost=None,
-                   debug=args.d, seed=422742, run=args.run)
+                   debug=args.d, algorithm=algorithm, seed=422742,
+                   run=args.run, use_seg=args.seg)
 
     if args.met:
         from utils.compare_methods import compare_met
 
-        compare_met(T=args.T, K=args.K, save_dir=args.save, i_max=5e6,
+        compare_met(T=args.T, K=args.K, save_dir=args.save, i_max=5e8,
                     t_max=args.tmax, n_jobs=args.njobs, hostfile=args.hostfile,
                     graphical_cost=graphical_cost, display=args.no_display,
                     debug=args.d)

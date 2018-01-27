@@ -51,6 +51,8 @@ class FISTA(_GradientDescent):
         self.L = self.pb.L
         self.yn = self.pb.pt
 
+        self.pb._compute_constant()
+
     def p_update(self):
         '''Update the pt in the objective direction
         '''

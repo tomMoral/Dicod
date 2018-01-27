@@ -16,9 +16,14 @@
 #define REQ_PROBE 2
 #define REP_PROBE 3
 
+// Enum algo coeff selection
 #define ALGO_GS 0
 #define ALGO_RANDOM 1
 
+// Smallest coefficient update for ALGO_RANDOM
+#define EPSILON 1e-10
+
+// Message constants
 #define HEADER 7
 #define TAG_UP 2742
 
@@ -52,17 +57,18 @@ class DICOD
 		double *alpha_k, *DD, *D;
 		bool *end_neigh, first_probe;
 		double lmbd, tol, t_max;
-		int L_proc, L_proc_S, proc_off, iter;
-		int T, dim, S, K, L, i_max;
+		long int iter, i_max;
+		int L_proc, L_proc_S, proc_off;
+		int T, dim, S, K, L;
 		int world_size, world_rank;
-		int algo, patience;
+		int algo, patience, max_probe;
 		double next_probe, up_probe, runtime, t_init;
 		chrono::high_resolution_clock::time_point t_start;
 		bool pause, go, debug, logging, positive;
 		list<double*> messages;
 		unordered_map<int, int> probe_result;
 		list<int> probe_try;
-		list<double> log_dz, log_t, log_i0;
+		list<double> log_dz, log_time, log_i0, log_skip;
 		mt19937 rng;
 
 		// Segment routine variables
@@ -70,9 +76,13 @@ class DICOD
 		int current_seg, n_seg, n_zero;
 		double seg_dz;
 
-    	//Private Methods
-    	double _return_dz(double dz);
+		// Random algorithm count
+		int n_skip;
+
+		//Private Methods
+		double _return_dz(double dz);
 		double compute_cost();
+		double _check_convergence();
 		void _init_algo();
 		void _update_beta(double dz, int k, int t);
 		void process_queue();

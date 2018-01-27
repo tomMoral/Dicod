@@ -2,7 +2,6 @@ import numpy as np
 from time import time
 
 import IPython
-import matplotlib.pyplot as plt
 
 from utils.rand_problem import fun_rand_problems
 from cdl.dicod import DICOD
@@ -79,8 +78,8 @@ def dict_learn(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
 
             pb_batch = [
                 [pbs[i], i] for i in order[
-                    current_batch*mini_batch_size:
-                    (current_batch+1)*mini_batch_size]]
+                    current_batch * mini_batch_size:
+                    (current_batch + 1) * mini_batch_size]]
             current_batch += 1
             current_batch %= n_batch
             DD = None
@@ -101,19 +100,19 @@ def dict_learn(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
             # Logging
             N_see = len(grad_nz)
             cost_i1 = cost_i
-            cost_i = np.sum(cost, axis=0)/N_see
+            cost_i = np.sum(cost, axis=0) / N_see
             print('End mini_batch {:3} with cost {:e}'
                   ''.format(int(current_batch), cost_i))
             if graphical_cost is not None:
-                log.graphical_cost(cost=np.sum(cost, axis=0)/N_see)
+                log.graphical_cost(cost=np.sum(cost, axis=0) / N_see)
             if current_batch == 0:
-                print('='*79)
+                print('=' * 79)
                 print('End Epoch {} in {:.2}s'
                       ''.format(current_epoch, time() - time_epoch))
                 time_epoch = time()
                 current_epoch += 1
                 np.random.shuffle(order)
-                print('='*79)
+                print('=' * 79)
 
             # reg = np.zeros(D.shape)
             # reg[:, :, :-2] += D[:, :, 2:]
@@ -121,43 +120,43 @@ def dict_learn(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
             # reg[:, :, :] /= np.sqrt(1e-2+D[:, :, :]*D[:, :, :])
 
             # Update dictionary with unit norm regularization
-            grad = np.sum(grad_D, axis=0)/N_see
-            gw = np.sum(grad*D, axis=-1)
-            gg = np.sum(grad*grad, axis=-1)
-            lmbd = min(np.min(.5/np.sqrt(gg-gw*gw)), lmbd)
+            grad = np.sum(grad_D, axis=0) / N_see
+            gw = np.sum(grad * D, axis=-1)
+            gg = np.sum(grad * grad, axis=-1)
+            lmbd = min(np.min(.5 / np.sqrt(gg - gw * gw)), lmbd)
             assert not np.isnan(lmbd)
-            alpha = lmbd*gw - np.sqrt(1-lmbd*lmbd*(gg-gw*gw))
+            alpha = lmbd * gw - np.sqrt(1 - lmbd * lmbd * (gg - gw * gw))
             D *= alpha[:, :, None]
-            D -= lmbd*grad
+            D -= lmbd * grad
 
             if cost_i >= cost_i1 and not new:
-                #IPython.embed()
+                # IPython.embed()
                 lmbd *= .7
         from sys import stdout as out
-        print('='*79)
+        print('=' * 79)
         print('Fit the pb to the latest dictionary')
-        print('='*79)
+        print('=' * 79)
         for i, pb in enumerate(pbs):
             pb.D = D
             pb.reset()
             dcp.fit(pb)
-            out.write('\rCompute rpz: {:7.2%}'.format(i/N))
+            out.write('\rCompute rpz: {:7.2%}'.format(i / N))
             out.flush()
         print('\rCompute rpz: {:7}'.format('Done'))
     except KeyboardInterrupt:
         from sys import stdout as out
-        print('='*79)
+        print('=' * 79)
         print('Fit the pb to the latest dictionary')
-        print('='*79)
+        print('=' * 79)
         for i, pb in enumerate(pbs):
             pb.D = D
             pb.reset()
             dcp.fit(pb)
-            out.write('\rCompute rpz: {:7.2%}'.format(i/N))
+            out.write('\rCompute rpz: {:7.2%}'.format(i / N))
             out.flush()
         print('\rCompute rpz: {:7}'.format('Done'))
 
     finally:
-        print("Frob norm D", np.sum((D-D0)**2)/np.sum(D0*D0))
+        print("Frob norm D", np.sum((D - D0) ** 2) / np.sum(D0 * D0))
         IPython.embed()
         log.end()

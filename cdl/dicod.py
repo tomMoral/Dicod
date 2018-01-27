@@ -26,7 +26,7 @@ class DICOD(_GradientDescent):
         Maximal number of process to solve this problem
     use_seg: int, optional (default: 1)
         If >1, further segment the updates and update
-        the best coordinate over each semgnet cyclically
+        the best coordinate over each segment cyclically
     hostfile: str, optional (default: None)
         Specify a hostfile for mpi launch, permit to use
         more than one computer
@@ -202,31 +202,34 @@ class DICOD(_GradientDescent):
     def _log(self, iterations, t_end):
         self.comm.Barrier()
         pb, L = self.pb, self.L
-        updates = []
-        updates_t = []
-        for i, it in enumerate(iterations):
-            _log = np.empty(3*it)
-            self.comm.Recv([_log, MPI.DOUBLE], i, tag=300+i)
-            updates += [(int(_log[3*i]), _log[3*i+2]) for i in range(it)]
-            updates_t += [_log[3*i+1] for i in range(it)]
+        updates, updates_t, updates_skip = [], [], []
+        for id_worker, n_iter in enumerate(iterations):
+            _log = np.empty(4 * n_iter)
+            self.comm.Recv([_log, MPI.DOUBLE], id_worker, tag=300 + id_worker)
+            updates += [(int(_log[4 * i]), _log[4 * i + 2])
+                        for i in range(n_iter)]
+            updates_t += [_log[4 * i + 1] for i in range(n_iter)]
+            updates_skip += [_log[4 * i + 3] for i in range(n_iter)]
 
         i0 = np.argsort(updates_t)
         next_log = 1
         pb.reset()
         log.debug('Start logging cost')
         t = self.t_init
-        for it, i in enumerate(i0):
-            if it+1 >= next_log:
-                log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
-                            iteration=it+1, fun=pb.cost,
+        it = 0
+        for i in i0:
+            if it + 1 >= next_log:
+                log.log_obj(name='cost' + str(self.id), obj=np.copy(pb.pt),
+                            iteration=it + 1, fun=pb.cost,
                             graph_cost=self.graph_cost, time=t)
-                next_log = self.log_rate(it+1)
+                next_log = self.log_rate(it + 1)
             j, du = updates[i]
-            t = updates_t[i]+self.t_init
-            pb.pt[j//L, j % L] += du
-        log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
+            t = updates_t[i] + self.t_init
+            pb.pt[j // L, j % L] += du
+            it += 1 + updates_skip[i]
+        log.log_obj(name='cost' + str(self.id), obj=np.copy(pb.pt),
                     iteration=it, fun=pb.cost,
-                    graph_cost=self.graph_cost, time=self.runtime+self.t_init)
+                    graph_cost=self.graph_cost, time=self.runtime + self.t_init)
         self.log_update = (updates_t, updates)
         log.debug('End logging cost')
 
@@ -253,11 +256,12 @@ class DICOD(_GradientDescent):
         return A, B
 
     def _broadcast_array(self, arr):
-        arr = np.array(arr).astype('d')
-        T = np.prod(arr.shape)
+        arr = np.array(arr).flatten().astype('d')
+        T = arr.shape[0]
         N = np.array(T, 'i')
         self.comm.Bcast([N, MPI.INT], root=MPI.ROOT)
-        self.comm.Bcast([arr.flatten(), MPI.DOUBLE], root=MPI.ROOT)
+        # self.comm.Bcast(N, root=MPI.ROOT)
+        self.comm.Bcast([arr, MPI.DOUBLE], root=MPI.ROOT)
 
     def _confirm_array(self, expect):
         '''Aux function to confirm that we passed the correct array

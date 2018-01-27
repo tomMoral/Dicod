@@ -21,7 +21,7 @@ def fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=None):
 
     X = np.array([[np.convolve(zk, dk, 'full') for dk in Dk]
                   for Dk, zk in zip(D, Z)]).sum(axis=0)
-    X += noise_level * np.random.normal(size=X.shape)
+    X += noise_level * rng.normal(size=X.shape)
 
     z0 = np.zeros((K, (T - 1) * S + 1))
     pb = MultivariateConvolutionalCodingProblem(
@@ -48,7 +48,7 @@ def fun_rand_problem_old(T, S, K, d, lmbd, noise_level, seed=None):
 
     X = np.array([[np.convolve(zk, dk, 'full') for dk in Dk]
                   for Dk, zk in zip(D, Z)]).sum(axis=0)
-    X += noise_level * np.random.normal(size=X.shape)
+    X += noise_level * rng.normal(size=X.shape)
 
     z0 = np.zeros((K, (T - 1) * S + 1))
     pb = MultivariateConvolutionalCodingProblem(
@@ -136,11 +136,11 @@ def fun_rand_problems(N=10, S=100, K=10, d=6, noise_level=1, seed=None):
     for n in range(N):
         out.write("\rProblem construction: {:7.2%}".format(n/N))
         out.flush()
-        T = np.random.randint(50, 70)
+        T = rng.randint(50, 70)
         Z = (rng.rand(K, (T-1)*S+1) < rho)*rng.rand(K, (T-1)*S+1)*10
         X = np.array([[np.convolve(zk, dk, 'full') for dk in Dk]
                       for Dk, zk in zip(D, Z)]).sum(axis=0)
-        X += noise_level*np.random.normal(size=X.shape)
+        X += noise_level*rng.normal(size=X.shape)
 
         pbs += [MultivariateConvolutionalCodingProblem(
             D, X, lmbd=.1)]

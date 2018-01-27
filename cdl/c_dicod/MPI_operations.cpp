@@ -17,7 +17,10 @@ double* receive_bcast(Intercomm* comm){
 }
 
 double* receive_bcast(Intercomm* comm, int &size){
-	comm->Bcast(&size, 1, INT, ROOT);
+
+	int* s = &size;
+	comm->Bcast(s, 1, INT, 0);
+
 	double* out = new double[size];
 	comm->Bcast(out, size, DOUBLE, ROOT);
 	return out;

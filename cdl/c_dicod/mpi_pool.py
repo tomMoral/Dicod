@@ -70,6 +70,7 @@ class MPI_Pool(object):
             self.c_prog, maxprocs=self.n_jobs,
             info=mpi_info)
         self.comm.Barrier()
+        print("Pool initialized")
 
     def resize(self, n_jobs):
         '''TODO: Robustify
@@ -100,13 +101,14 @@ class MPI_Pool(object):
         comm2.Disconnect()
 
     def mng_bcast(self, msg, comm=None):
+        print("mng_bcast: ", msg)
         if comm is None:
             comm = self.comm
         for i in range(comm.remote_size, 0, -1):
-            comm.Send([msg, MPI.INT], i-1, TAG_MNG_MSG)
+            comm.Send([msg, MPI.INT], i - 1, TAG_MNG_MSG)
 
     def terminate(self):
-        msg = np.array([MNG_STOP]*4).astype('i')
+        msg = np.array([MNG_STOP] * 4).astype('i')
         self.mng_bcast(msg)
         self.comm.Disconnect()
 

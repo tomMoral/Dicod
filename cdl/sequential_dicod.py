@@ -52,7 +52,7 @@ class SeqDICOD(_GradientDescent):
         self.pb.compute_DD()
         self.DD = self.pb.DD
 
-        # compute the initial valut for _beta
+        # compute the initial value for _beta
         self._beta = self.pb.grad()
 
         # Init runing variables

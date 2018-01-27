@@ -5,13 +5,13 @@ from time import sleep
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-from cdl.dicod import DICOD
+from cdl.dicod import DICOD, ALGO_GS
 from utils.rand_problem import fun_rand_problem
 
 
-def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
-               i_max=5e6, t_max=7200,  hostfile=None, run='all',
-               lgg=False, graphical_cost=None, debug=0, seed=None):
+def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, i_max=5e6,
+               t_max=7200, hostfile=None, run='all', lgg=False, use_seg=False,
+               graphical_cost=None, algorithm=ALGO_GS, debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -42,14 +42,18 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
         nodes
     run: list or str, optional (default: 'all')
         if all, run all the possible runs. Else, it should be a list composed
-        of int for njobs to run or of str {n_jobs:nrep} for specific cases
+        of int for njobs to run or of str {n_jobs: n_rep} for specific cases.
     lgg: bool, optional (default: False)
         If set to true, enable the logging of the iteration cost
         during the run. It might slow down a bit the execution
         time and the collection of the results
     graphical_cost: dict, optional (default: None)
-        Setup option to enable a grpahical logging of the cost
+        Setup option to enable a graphical logging of the cost
         function.
+    algorithm: enum, optional (default: ALGO_GS)
+        Algorithm used to select the update for the coordinate descent. It
+        should be either ALGO_GS (greedy selection) or ALGO_RANDOM (random
+        selection).
     debug: int, optional (default:0)
         The greater it is, the more verbose the algorithm
     seed: int, optional (default:None)
@@ -58,7 +62,12 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
     '''
     common_args = dict(logging=lgg, log_rate='log1.6', i_max=i_max,
                        t_max=t_max, graphical_cost=graphical_cost,
-                       debug=debug, tol=5e-2, hostfile=hostfile)
+                       debug=debug, tol=5e-2, hostfile=hostfile,
+                       algorithm=algorithm, patience=1000)
+
+    # Do not use seg with ALGO_RANDOM
+    assert not use_seg or algorithm == ALGO_GS
+
     S = 150
     K = 10
     d = 7
@@ -72,6 +81,9 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
         save_dir = "."
 
     rng = np.random.RandomState(seed)
+    suffix = "_random" if algorithm else "_seg" if use_seg else ""
+    fname = 'runtimes_{}{}.csv'.format(T, suffix)
+    fname = osp.join(save_dir, fname)
 
     for j in range(n_rep):
         seed_pb = rng.randint(4294967295)
@@ -87,11 +99,12 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
         n_jobs = n_jobs[::-1]
         for nj in n_jobs:
             code_run = "{}:{}".format(nj, j)
-            if (run != 'all' and nj not in run and code_run not in run):
+            if (run != 'all' and str(nj) not in run and code_run not in run):
                 continue
             dcp.reset()
             pb.reset()
             dcp.n_jobs = nj
+            dcp.use_seg = T // nj if use_seg else 1
 
             dcp.fit(pb)
             runtimes += [[dcp.runtime, dcp.t]]
@@ -99,21 +112,19 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
             time.sleep(1)
             rt = runtimes[-1]
             if save_dir is not None:
-                with open(osp.join(save_dir, 'runtimes_{}.csv'.format(T)),
-                          'a') as f:
+                with open(fname, 'a') as f:
                     f.write('Pb{},{},{},{}\n'.format(
                         j, nj, rt[0], rt[1]))
-            print('='*79)
+            print('=' * 79)
             print('[{}] PB{}: End process with {} jobs  in {:.2f}s'
                   ''.format(datetime.datetime.now().strftime("%I:%M"),
                             j, nj, rt[0]))
-            print('\n'+'='*79)
+            print('\n' + '=' * 79)
             sleep(.5)
-
 
     min_njobs = 0
     fig, axs = plt.subplots(1, 1, sharex=True, num="scaling")
-    with open(osp.join(save_dir, "runtimes_{}.csv".format(T))) as f:
+    with open(fname) as f:
         lines = f.readlines()
     arr = defaultdict(lambda: [])
     for l in lines:
@@ -145,7 +156,7 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None,
     axk.vlines(t[break_p], .1, 100000, "g", linestyle="-", linewidth=2)
     axk.set_xlim((m * .7, 1.7 * M))
     axk.set_ylim((.5 * l, 1.7 * L))
-    axk.set_title(f"$T={T}$", fontsize="x-large")
+    axk.set_title("$T={}$".format(T), fontsize="x-large")
     # if i == 0:
     axk.legend(fontsize="large")
     axk.set_ylim((.2 * l, 1.7 * L))

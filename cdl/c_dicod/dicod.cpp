@@ -21,7 +21,7 @@ using namespace FFTW_Convolution;
 #define PROBE_UP_START 0.05		// Smallest time between probe for end
 #define PROBE_MAX 0.4			// Largest time between probes
 
-#define DEBUG false
+#define DEBUG true
 
 //Object handeling the computation
 DICOD::DICOD(Intercomm* _parentComm){
@@ -37,6 +37,7 @@ DICOD::DICOD(Intercomm* _parentComm){
 	alpha_k = NULL, DD=NULL, D=NULL;
 	sig = NULL, beta = NULL, pt=NULL;
 	runtime = 0;
+	max_probe = 0;
 
 	// Greetings
 	world_size = parentComm->Get_size();	// # processus
@@ -78,7 +79,9 @@ void DICOD::receive_task(){
 	delete[] alpha_k;
 	delete[] DD;
 	delete[] D;
+
 	alpha_k = receive_bcast(parentComm);
+
 	DD = receive_bcast(parentComm);
 	D = receive_bcast(parentComm);
 
@@ -86,12 +89,12 @@ void DICOD::receive_task(){
 	double* constants = receive_bcast(parentComm);
 	dim = (int) constants[0];				// Dimension of the signal
 	K = (int) constants[1];					// Number of dictionary elements
-	S = (int) constants[2];  				// Size of the dicitonary
+	S = (int) constants[2];  				// Size of the dictionary
 	T = (int) constants[3];					// Size of the signal
-	lmbd = constants[4];					// Regularisation parameter
+	lmbd = constants[4];					// Regularization parameter
 	tol = constants[5];						// Convergence tolerance
 	t_max = constants[6];					// Maximum time
-	i_max = (int) constants[7];				// # iterations maximum
+	i_max = (long int) constants[7];		// maximum # of iterations
 	debug = ((int) constants[8] > 0);		// Debug level
 	logging = ((int) constants[9] == 1);	// Activate the logging
 	n_seg = ((int) constants[10]);			// Use a segmented update
@@ -125,7 +128,7 @@ void DICOD::receive_task(){
 
 	chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
 	chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
-  	t_init = time_span.count();
+	t_init = time_span.count();
 	t_start = chrono::high_resolution_clock::now();
 }
 
@@ -138,8 +141,6 @@ void DICOD::_init_algo(){
 	// FFT tools
 	Workspace ws;
 	init_workspace(ws, LINEAR_VALID, 1, L_proc_S, 1, S);
-
- 	// The main loop
 
 	//Initialize beta and pt
 	delete[] beta;
@@ -155,10 +156,10 @@ void DICOD::_init_algo(){
 			//Revert dic
 			for(tau=0; tau < S; tau++)
 				kernel[tau] = D[k*dim*S+(d+1)*S-tau-1];
-  			convolve(ws, src, kernel);
-  			for(t=0; t < L_proc; t++){
-  			 	beta[k*L_proc+t] -= ws.dst[t]/dim;
-  			}
+			convolve(ws, src, kernel);
+			for(t=0; t < L_proc; t++){
+				beta[k*L_proc+t] -= ws.dst[t]/dim;
+			}
 		}
 
 	}
@@ -172,13 +173,13 @@ void DICOD::_init_algo(){
 	up_probe = PROBE_UP_START;
 	log_dz.clear();
 	log_i0.clear();
-	log_t.clear();
+	log_skip.clear();
+	log_time.clear();
 
 	// Init the segment choosing and stoping
-	current_seg = 0;
+	current_seg = 0, n_zero = 0, n_skip = 0;
 	seg_dz = 0.;
 	seg_size = ceil(L_proc * 1. / n_seg);
-	n_zero = 0;
 
 	end_neigh = new bool[2];
 	end_neigh[0] = (world_rank == 0);
@@ -192,8 +193,8 @@ double DICOD::step(){
 
 	process_queue();
 	int i, k, t, k_off;
-	int k0, t0 = -1;
-	double ak, dz, adz = tol;
+	int k0 = 1, t0 = -1;
+	double ak, dz = 0, adz = tol;
 	double beta_i, sign_beta_i;
 	if(pause && probe_try.size() > 0){
 		probe_reply();
@@ -225,7 +226,7 @@ double DICOD::step(){
 				sign_beta_i = (beta_i >= 0)?1:-1;
 				if(positive)
 					sign_beta_i = (beta_i >= 0)?1:0;
-				beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
+				beta_i = max(0., fabs(beta_i)-lmbd) * sign_beta_i/ak;
 				if(adz < fabs(beta_i-pt[i])){
 					k0 = k;
 					t0 = t;
@@ -236,50 +237,67 @@ double DICOD::step(){
 		}
 	}
 	else if(algo == ALGO_RANDOM){
+		// Uniformly sample a coefficient
 		uniform_int_distribution<> dis_t(seg_start, seg_end-1);
 		uniform_int_distribution<> dis_k(0, K-1);
 		t = dis_t(rng);
-		k  = dis_k(rng);
+		k = dis_k(rng);
 		ak = alpha_k[k];
 		i = k*L_proc+t;
+
+		// Compute the update
 		beta_i = -beta[i];
 		sign_beta_i = (beta_i >= 0)?1:-1;
 		if(positive)
 			sign_beta_i = (beta_i >= 0)?1:0;
 		beta_i = max(0., fabs(beta_i)-lmbd)*sign_beta_i/ak;
 
-		if(adz < fabs(beta_i-pt[i])){
+		// If the update is not null
+		if(fabs(beta_i-pt[i]) > tol){
 			k0 = k;
 			t0 = t;
-			dz = pt[i]-beta_i;
+			dz = pt[i] - beta_i;
 			adz = fabs(dz);
 		}
 	}
-	// If there is no update
-	// it will go to pause in end
-	if(t0 == -1){
-		n_zero += 1;
-		return _return_dz(0.);;
-	}
-	n_zero = 0;
 
-	// Else update the point
-	pt[k0*L_proc+t0] -= dz;
+	// Increase n_zero
+	if(adz <= tol)
+		n_zero += 1;
+	else
+		n_zero = 0;
+
+	// If no coefficient was selected for an update (GREEDY) or
+	// the udpate is 0 (RANDOM), directly return and do not update
+	// beta or pt.
+	if(t0 == -1){
+		n_skip ++;
+		return _return_dz(0.);
+	}
+
+	// Increase iteration count
+	iter += 1;
+
 	if(logging){
-		//int off = world_rank*L_proc;
 		chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
 		chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
-	  	double seconds = time_span.count();
+		double seconds = time_span.count();
 
-		log_t.push_back(seconds);
+		log_time.push_back(seconds);
 		log_dz.push_back(-dz);
+		log_skip.push_back(n_skip);
 		log_i0.push_back((double) k0*L+proc_off+t0);
 	}
 	else if (n_seg > 1){
 		log_dz.push_back(-dz);
 	}
+
+	// Else update the point
+	pt[k0*L_proc+t0] -= dz;
 	_update_beta(dz, k0, t0);
-	iter += 1;
+
+	// Reset skip counter
+	n_skip = 0;
 
 	return _return_dz(dz);
 }
@@ -289,13 +307,13 @@ double DICOD::step(){
 double DICOD::_return_dz(double dz){
 
 	if(n_seg > 1){
-		// For semgented algorithm, return the max of dz
+		// For segmented algorithm, return the max of dz
 		// over the n_seg last updates
 		int k;
 		list<double>::reverse_iterator rit;
 
 		for(rit = log_dz.rbegin(), k = 0;
-			rit != log_dz.rend() && k < 2*n_seg-n_zero;
+			rit != log_dz.rend() && k < 2 * n_seg - n_zero;
 			rit++, k++)
 			if(fabs(*rit) > fabs(dz))
 				dz = *rit;
@@ -304,12 +322,17 @@ double DICOD::_return_dz(double dz){
 		// For the RANDOM algorithm, wait until we get a number of
 		// 0 updates superior to patience
 		if(patience > n_zero)
-			dz = 2*tol;
+			return 2 * tol;
+		else
+			return _check_convergence();
+
 	return dz;
 }
 
 // Update the beta variable after a change of coordinate (k0, t0) of dz
 void DICOD::_update_beta(double dz, int k0, int t0){
+	if(dz == 0)
+		return;
 	//Loop variables
 	int k, tau;
 	//Offset variables
@@ -326,12 +349,12 @@ void DICOD::_update_beta(double dz, int k0, int t0){
 
 	// Update local beta coefficients
 	beta_off = cod_start;
-	DD_off   = k0*s_DD + DD_start;
+	DD_off = k0*s_DD + DD_start;
 	for(k=0; k < K; k++){
 		for(tau=0; tau < ll; tau++)
 			beta[beta_off+tau] -= DD[DD_off+tau]*dz;
 		beta_off += L_proc;
-		DD_off   += K*s_DD;
+		DD_off += K*s_DD;
 	}
 	beta[i0] = p_beta_i0;
 	if (DD_start > 0 && world_rank > 0)
@@ -354,17 +377,43 @@ void DICOD::send_update_msg(int dest, double dz, int k0,
 	messages.push_back(msg);
 }
 
+double DICOD::_check_convergence(){
+
+	int k, t, i = 0;
+	int sign_b;
+	double b, ak, dz, adz = 0;
+	//Find argmax of |z_i - z'_i|
+	for(k = 0; k < K; k++){
+		ak = alpha_k[k];
+		for (t=0; t < L_proc; t++){
+			b = -beta[i];
+			sign_b = (b >= 0)?1:-1;
+			if(positive)
+				sign_b = (b >= 0)?1:0;
+			dz = fabs(max(0., fabs(b) - lmbd)*sign_b/ak - pt[i]);
+			adz = max(adz, dz);
+			if (adz > tol)
+				break;
+			i ++;
+		}
+	}
+	if (adz > tol)
+		n_zero = 0;
+	return adz;
+}
+
 bool DICOD::stop(double dz){
 	chrono::high_resolution_clock::time_point t_end = chrono::high_resolution_clock::now();
 	chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
-  	double seconds = time_span.count();
+	double seconds = time_span.count();
 	bool _stop = false;
 	_stop |= (iter >= i_max);
 	_stop |= (seconds >= t_max);
 	if(!go){
 		COMM_WORLD.Barrier();
 		if(world_rank == 0 && (debug || DEBUG))
-			cout << "INFO - MPI_worker - Reach optimal solution in " << seconds << endl;
+			cout << "\nINFO - MPI_worker - Reach optimal solution in "
+				 << seconds << endl;
 		return true;
 	}
 	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
@@ -402,37 +451,39 @@ bool DICOD::stop(double dz){
 			runtime = seconds;
 		COMM_WORLD.Barrier();
 	}
-	if(world_rank == 0 && (debug || DEBUG) &&  iter % 1000 == 0){
+	if(world_rank == 0 && (debug || DEBUG) &&  (iter % 1000 == 0 || pause)){
 		double progress = max(iter * 100.0 / i_max, seconds * 100.0 / t_max);
-		progress = max( progress, tol / dz);
-	    cout << "\rDEBUG - MPI_worker - Progress " << setw(2)
-			 << progress << "%    " << flush;
+		cout << "\rDEBUG - MPI_worker - Progress " << setw(2)
+			 << progress << "%   (probe: " << max_probe << ")" << flush;
 
 	}
 	return _stop;
 }
 
 void DICOD::reduce_pt(){
+	long int i;
 	double cost = compute_cost();
 	parentComm->Barrier();
 	parentComm->Send(pt, L_proc*K, DOUBLE, 0, 200+world_rank);
 	parentComm->Gather(&cost, 1, DOUBLE, NULL, 0, DOUBLE, 0);
-	parentComm->Gather(&iter, 1, INT, NULL, 0, DOUBLE, 0);
+	parentComm->Gather(&iter, 1, INT, NULL, 0, INT, 0);
 	parentComm->Gather(&runtime, 1, DOUBLE, NULL, 0, DOUBLE, 0);
 	parentComm->Gather(&t_init, 1, DOUBLE, NULL, 0, DOUBLE, 0);
 
 	if (logging){
 		parentComm->Barrier();
-		double* _log = new double[3*iter];
-		list<double>::iterator itz, itt, iti;
-		int i = 0;
-		for(itz=log_dz.begin(), itt=log_t.begin(), iti=log_i0.begin();
-			iti != log_i0.end(); itz++, itt++, iti++, i++){
-			_log[3*i] = *iti;
-			_log[3*i+1] = *itt;
-			_log[3*i+2] = *itz;
+		double* _log = new double[4*iter];
+		list<double>::iterator it_dz, it_time, it_i0, it_skip;
+		for(i=0, it_dz=log_dz.begin(), it_time=log_time.begin(),
+			it_i0=log_i0.begin(), it_skip=log_skip.begin();
+			it_i0 != log_i0.end();
+			i++, it_dz++, it_i0++, it_time++, it_skip++){
+			_log[4*i] = *it_i0;
+			_log[4*i+1] = *it_time;
+			_log[4*i+2] = *it_dz;
+			_log[4*i+3] = *it_skip;
 		}
-		parentComm->Send(_log, 3*iter, DOUBLE, 0, 300+world_rank);
+		parentComm->Send(_log, 4*iter, DOUBLE, 0, 300+world_rank);
 		delete[] _log;
 	}
 }
@@ -449,11 +500,11 @@ double DICOD::compute_cost(){
 		for(d = 0; d<dim; d++){
 			src = &pt[k*L_proc];
 			kernel = &D[(k*dim+d)*S];
-  			convolve(ws, src, kernel);
-  			for(s=0; s < L_proc_S; s++)
-  			 	rec[d*L_proc_S+s] += ws.dst[s];
-  			for(s=0; s < S-1; s++)
-  				msg[d*(S-1)+s] += ws.dst[s];
+			convolve(ws, src, kernel);
+			for(s=0; s < L_proc_S; s++)
+				rec[d*L_proc_S+s] += ws.dst[s];
+			for(s=0; s < S-1; s++)
+				msg[d*(S-1)+s] += ws.dst[s];
 		}
 	if(world_rank > 0){
 
@@ -539,9 +590,9 @@ void DICOD::process_queue(){
 	double* msg;
 	int ll, k, tau, i_try, l_msg;
 	int DD_off, beta_off, k0, DD_start, cod_start, s_DD;
-	int compt = 0;
+	int compt = 0, probe_val;
 	double dz;
-	while(COMM_WORLD.Iprobe(ANY_SOURCE, ANY_TAG, s)&&(compt < 10000)){
+	while(COMM_WORLD.Iprobe(ANY_SOURCE, ANY_TAG, s) && (compt < 10000)){
 		compt += 1;
 		size_msg = s.Get_count(DOUBLE);
 		src = s.Get_source();
@@ -554,16 +605,17 @@ void DICOD::process_queue(){
 				break;
 			case REQ_PROBE:
 				probe_try.push_back((int) msg[1]);
-							break;
+				break;
 			case REP_PROBE:
 				l_msg = (int) msg[1];
 				for(int i=0; i < l_msg; i++){
 					i_try = msg[2+i];
-					probe_result[i_try] ++;
-					if(probe_result[i_try] == world_size-1 && pause){
+					probe_val = ++probe_result[i_try];
+					if(probe_val == world_size && pause){
 						Ibroadcast(STOP);
 						go = false;
 					}
+					max_probe = max(max_probe, probe_val);
 				}
 				break;
 			case UP:
@@ -576,7 +628,7 @@ void DICOD::process_queue(){
 
 				for(k=0; k<K; k++){
 					beta_off = k*L_proc + cod_start;
-					DD_off   = k*K*s_DD + k0*s_DD + DD_start;
+					DD_off = k*K*s_DD + k0*s_DD + DD_start;
 					for(tau=0; tau< ll; tau ++)
 						beta[beta_off+tau] -= dz*DD[DD_off+tau];
 				}
@@ -598,7 +650,7 @@ void DICOD::Ibroadcast(int msg_t){
 		break;
 		case REQ_PROBE:
 			int i_try = probe_result.size();
-			probe_result[i_try] = 0;
+			probe_result[i_try] = 1;
 			msg[0] = REQ_PROBE;
 			msg[1] = i_try;
 	}
