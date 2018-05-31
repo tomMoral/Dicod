@@ -30,6 +30,8 @@ if __name__ == '__main__':
     parser.add_argument('--jobs', action='store_true',
                         help='Compute the runtime for different number '
                              'of cores')
+    parser.add_argument('--lmbd', action='store_true',
+                        help='Compute the scaling relatively to lmbd.')
     parser.add_argument('--rcd', action='store_true',
                         help='Uses the random selection in CD')
     parser.add_argument('--seg', action='store_true',
@@ -67,6 +69,15 @@ if __name__ == '__main__':
                    hostfile=args.hostfile, lgg=False, graphical_cost=None,
                    debug=args.d, algorithm=algorithm, seed=422742,
                    run=args.run, use_seg=args.seg)
+
+    if args.lmbd:
+        from utils.scaling_lmbd import scaling_lmbd
+        algorithm = ALGO_RANDOM if args.rcd else ALGO_GS
+        scaling_lmbd(T=args.T, n_jobs=args.njobs, n_rep=args.nrep,
+                     save_dir=args.save, i_max=5e9, t_max=args.tmax,
+                     hostfile=args.hostfile, lgg=False, graphical_cost=None,
+                     debug=args.d, algorithm=algorithm, seed=422742,
+                     run=args.run, use_seg=args.seg)
 
     if args.met:
         from utils.compare_methods import compare_met

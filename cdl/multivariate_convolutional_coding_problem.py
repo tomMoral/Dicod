@@ -51,6 +51,12 @@ class MultivariateConvolutionalCodingProblem(_Problem):
 
         return self.DD
 
+    def get_lmbd_max(self):
+        return np.max([
+            np.sum([np.correlate(D_kp, X_ip, mode='valid')
+                    for D_kp, X_ip in zip(D_k, self.x)], axis=0)
+            for D_k in self.D])
+
     def _compute_constant(self):
         """Precompute fft of X and D to fasten the gradient computations"""
         p, X_shape = self.x.shape[0], self.x.shape[-1]
