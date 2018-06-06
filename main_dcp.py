@@ -48,6 +48,8 @@ if __name__ == '__main__':
                         'generated signals.')
     parser.add_argument('--run', type=str, nargs="+", default="all",
                         help='list of jobs to compute')
+    parser.add_argument('--optim', type=str, default="dicod",
+                        help='Optimizer to test for scaling performances.')
     args = parser.parse_args()
 
     graphical_cost = None
@@ -72,12 +74,10 @@ if __name__ == '__main__':
 
     if args.lmbd:
         from utils.scaling_lmbd import scaling_lmbd
-        algorithm = ALGO_RANDOM if args.rcd else ALGO_GS
         scaling_lmbd(T=args.T, n_jobs=args.njobs, n_rep=args.nrep,
                      save_dir=args.save, i_max=5e9, t_max=args.tmax,
-                     hostfile=args.hostfile, lgg=False, graphical_cost=None,
-                     debug=args.d, algorithm=algorithm, seed=422742,
-                     run=args.run, use_seg=args.seg)
+                     hostfile=args.hostfile, lgg=False, optimizer=args.optim,
+                     debug=args.d, seed=422742)
 
     if args.met:
         from utils.compare_methods import compare_met

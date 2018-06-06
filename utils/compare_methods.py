@@ -70,9 +70,9 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
     # algos['RCD'] = (DICOD(
     #     pb, algorithm=1, n_jobs=1, hostfile=hostfile, patience=5e5,
     #     **common_args), 'cd-')
-    # algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
-    # algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
-    algos['FCSC'] = (FCSC(pb, tau=1.01, **common_args), 'k.-')
+    algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
+    # # algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
+    # algos['FCSC'] = (FCSC(pb, tau=1.01, **common_args), 'k.-')
     # algos['SeqDICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
     #     pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
     #     'c^-'
@@ -116,81 +116,12 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
                 fname = osp.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K))
                 with open(fname, 'rb') as f:
                     o_curves = pickle.load(f)
-                o_curves[name] = curves[name]
-                curves = o_curves
-            except:
-                pass
+            except FileNotFoundError:
+                o_curves = {}
+            o_curves[name] = curves[name]
+            curves = o_curves
             with open(fname, 'wb') as f:
                 pickle.dump(o_curves, f)
 
-    if not display:
-        import matplotlib as mpl
-        mpl.use('Agg')
-
-    def display_results(EPS=1):
-        print(log.output.log_objects.keys())
-        import matplotlib.pyplot as plt
-
-        T_min = 1
-        tlim = [T_min, 1e-1]
-        base_cost = pb.cost(pb.x0)
-        clim = [EPS * .9, base_cost * 1.1]
-        c_min = min([c[2][-1] for c in curves.values()]) - EPS
-        ilim = [7e-1, 0]
-        for (name, (it, t, cost)) in curves.items():
-
-            clim[0] = min(clim[0], cost[-1] * .9)
-            tlim[0] = min(tlim[0], t[1] * .9)
-            tlim[1] = max(tlim[1], t[-1] * 1.1)
-            ilim[1] = max(ilim[1], it[-1] * 1.1)
-
-            styl = algos[name][1]
-            plt.figure('Time')
-            plt.loglog(t, cost - c_min, styl, label=name, linewidth=2,
-                       markersize=9)
-            plt.figure('Iteration')
-            plt.loglog(it, cost[1:] - c_min, styl, label=name, linewidth=2,
-                       markersize=9)
-
-        # Format the figures
-        plt.figure('Iteration')
-        plt.hlines([EPS], ilim[0], ilim[1],
-                   linestyles='--', colors='k')
-        plt.legend(fontsize=16)
-        plt.xlabel('# iteration', fontsize=18)
-        plt.ylabel('Cost', fontsize=18)
-        plt.xlim(ilim)
-        plt.ylim(clim)
-        plt.xticks(size=14)
-        plt.yticks(size=14)
-        plt.subplots_adjust(top=.97, left=.1, bottom=.1, right=.98)
-
-        plt.figure('Time')
-        plt.hlines([EPS], tlim[0], tlim[1],
-                   linestyles='--', colors='k')
-        plt.legend(fontsize=16)
-        plt.xlabel('Time (s)', fontsize=18)
-        plt.ylabel('Cost', fontsize=18)
-        plt.xlim(tlim)
-        plt.ylim(clim)
-        plt.xticks(size=14)
-        plt.yticks(size=14)
-        plt.subplots_adjust(top=.97, left=.1, bottom=.1, right=.98)
-
-        if save_dir is not None:
-            import matplotlib.pyplot as plt
-            plt.figure('Time')
-            plt.savefig(osp.join(save_dir, 'cost_time_T{}_K{}.pdf'.format(T, K)),
-                        dpi=150)
-            plt.figure('Iteration')
-            plt.savefig(osp.join(save_dir, 'cost_iter_T{}_K{}.pdf'.format(T, K)),
-                        dpi=150)
-        plt.show()
-    if debug > 1:
-        import IPython
-        IPython.embed()
-
-    display_results()
-
-    if display:
-        input("Press Enter to quit.")
+    import IPython
+    IPython.embed()

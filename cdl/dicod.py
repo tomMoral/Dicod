@@ -112,12 +112,12 @@ class DICOD(_GradientDescent):
         self._broadcast_array(pb.D)
 
         # Send the constants of the algorithm
+        i_max = max(1, self.i_max // self.n_jobs)
         N = np.array([float(d), float(K), float(S), float(T),
-                      self.pb.lmbd, self.tol, float(self.t_max),
-                      self.i_max / self.n_jobs, float(self.debug),
-                      float(self.logging), float(self.use_seg),
-                      float(self.positive), float(self.algorithm),
-                      float(self.patience)],
+                      self.pb.lmbd, self.tol, float(self.t_max), float(i_max),
+                      float(self.debug), float(self.logging),
+                      float(self.use_seg), float(self.positive),
+                      float(self.algorithm), float(self.patience)],
                      'd')
         self._broadcast_array(N)
 
