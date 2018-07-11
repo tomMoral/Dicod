@@ -1,3 +1,6 @@
+This package is still under development. If you have any trouble running this code, please contact <thomas.moreau.2010@gmail.com>
+
+
 ## DICOD
 
 Package to run the experiements for the ICML paper Distributed convolutional
