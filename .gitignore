@@ -6,6 +6,7 @@ __pycache__
 *.egg-info
 .cache
 /.vscode
+.pytest_cache
 
 # Project config
 *sublime*
