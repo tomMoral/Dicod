@@ -19,7 +19,7 @@ install:
   - pip install -e .
 
 script:
-  - $PYTHON -m pytest -vl --pyargs dicod
+  - pytest dicod -vl
 
 notifications:
   webhooks:
