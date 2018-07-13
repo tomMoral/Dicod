@@ -67,7 +67,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         self.X_fft = X_fft = fft(self.x, n=fft_shape)
         self.D_fft = D_fft = fft(self.D, n=fft_shape)
 
-        # Reshape so that all the variableas have the same dimensions
+        # Reshape so that all the variables have the same dimensions
         # [K, p, T]
         self.X_fft = X_fft = self.X_fft[None]
 
@@ -77,7 +77,20 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         self.DtX_fft = (D_fft.conj() * X_fft).mean(axis=1, keepdims=False)
 
         # Lipchitz constant
-        self.L = np.linalg.norm(self.DtD_fft, axis=(0, 1), ord=2).max()
+        b_hat = np.random.rand(*self.pt.shape)
+        mu_hat = np.nan
+        for _ in range(100):
+            print('*', end='', flush=True)
+            norm = np.linalg.norm(b_hat)
+            b_hat /= norm
+            fb_hat = self.grad(b_hat)
+            mu_old = mu_hat
+            mu_hat = np.sum(b_hat * fb_hat)
+            b_hat = fb_hat
+            if abs(mu_hat - mu_old) / mu_old < 1e-15:
+                break
+        self.L = mu_hat
+        # self.L = np.linalg.norm(self.DtD_fft, axis=(0, 1), ord=2).max()
 
         # Store extra dimensions
         self.T = p * np.prod(X_shape)
@@ -92,7 +105,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         return self.D
 
     def Er(self, pt):
-        '''Commpute the reconstruction error
+        '''Compute the reconstruction error
         '''
         res = self.x - self.reconstruct(pt)
         return (res * res).sum() / (2 * self.d)

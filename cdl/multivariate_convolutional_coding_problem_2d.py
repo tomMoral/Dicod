@@ -79,7 +79,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         '''
         if pt is None:
             pt = self.pt
-        return self.Er(pt) + self.lmbd*np.sum(abs(pt))/np.prod(pt.shape[-2:])
+        return self.Er(pt) + self.lmbd * np.sum(abs(pt))
 
     def grad(self, pt=None, D=None, x=None):
         '''Compute the gradient at the given point
