@@ -1,7 +1,7 @@
 import numpy as np
 from time import time
 from sys import stdout as out
-from cdl.dicod2d import DICOD2D
+from dicod.dicod2d import DICOD2D
 from scipy.signal import fftconvolve
 from joblib import Parallel, delayed
 import matplotlib as mpl
@@ -92,7 +92,7 @@ if __name__ == '__main__':
     # assert -1 <= im.min() < im.max() <= 1
 
     D = init_D(im, K, h_dic, w_dic, overlap=0, method='KM')
-    from cdl.multivariate_convolutional_coding_problem_2d import \
+    from dicod.multivariate_convolutional_coding_problem_2d import \
         MultivariateConvolutionalCodingProblem2D as mccp
     pb = mccp(D, im, lmbd=.001)
     pb.compute_DD()

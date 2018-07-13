@@ -2,9 +2,9 @@ import numpy as np
 import pytest
 
 
-from cdl.multivariate_convolutional_coding_problem import\
+from dicod.multivariate_convolutional_coding_problem import\
     MultivariateConvolutionalCodingProblem
-from cdl.fista import FISTA
+from dicod.fista import FISTA
 
 
 def test_fista_simple():

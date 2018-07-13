@@ -2,10 +2,10 @@ from utils.rand_problem import fun_rand_problem
 import os.path as osp
 from time import sleep
 
-from cdl.dicod import DICOD
-from cdl.fista import FISTA
-from cdl.feature_sign_search import FSS
-from cdl.fcsc import FCSC
+from dicod.dicod import DICOD
+from dicod.fista import FISTA
+from dicod.feature_sign_search import FSS
+from dicod.fcsc import FCSC
 
 from toolboxTom.logger import Logger
 log = Logger('Root')

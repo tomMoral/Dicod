@@ -7,7 +7,7 @@ import numpy as np
 from time import sleep
 from joblib import Parallel, delayed, Memory
 
-from cdl.dicod import DICOD, ALGO_GS
+from dicod.dicod import DICOD, ALGO_GS
 from utils.rand_problem import fun_rand_problem
 
 
@@ -64,10 +64,10 @@ def run_one(args_pb, lmbd, optimizer, optimizer_kwargs, fname, file_lock):
     if isinstance(optimizer, str):
         method = optimizer
         if optimizer == "lgcd":
-            from cdl.dicod import DICOD
+            from dicod.dicod import DICOD
             optimizer = DICOD(None, **optimizer_kwargs)
         elif optimizer == "fista":
-            from cdl.fista import FISTA
+            from dicod.fista import FISTA
             optimizer = FISTA(None, **optimizer_kwargs)
     elif getattr(optimizer, "fit", None) is None:
         raise ValueError("`optimizer` parameter should be a string or an "

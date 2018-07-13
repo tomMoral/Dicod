@@ -2,12 +2,12 @@ import numpy as np
 import pytest
 
 
-from cdl.multivariate_convolutional_coding_problem import\
+from dicod.multivariate_convolutional_coding_problem import\
     MultivariateConvolutionalCodingProblem
-from cdl.dicod import DICOD, ALGO_GS, ALGO_RANDOM
-from cdl.multivariate_convolutional_coding_problem_2d import \
+from dicod.dicod import DICOD, ALGO_GS, ALGO_RANDOM
+from dicod.multivariate_convolutional_coding_problem_2d import \
     MultivariateConvolutionalCodingProblem2D
-from cdl.dicod2d import DICOD2D
+from dicod.dicod2d import DICOD2D
 from scipy.signal import fftconvolve
 
 
