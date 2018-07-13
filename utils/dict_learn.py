@@ -1,3 +1,4 @@
+import logging
 import numpy as np
 from time import time
 
@@ -6,8 +7,8 @@ import IPython
 from utils.rand_problem import fun_rand_problems
 from dicod.dicod import DICOD
 
-from toolboxTom.logger import Logger
-log = Logger('Root')
+
+log = logging.getLogger('dicod')
 
 
 def dict_learn(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,

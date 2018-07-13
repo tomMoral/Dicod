@@ -1,13 +1,13 @@
+import logging
 import numpy as np
 
-
 from toolboxTom.optim.paralel_solver import ParalelSolver
-from toolboxTom.logger import Logger
-log = Logger('ConvolutionalDicitonaryLearning', 10)
 
 from .convolutionalPursuit import ConvolutionalPursuit
 from convDL.multivariate_convolutional_coding_problem \
     import MultivariateConvolutionalCodingProblem
+
+log = logging.getLogger('dicod')
 
 
 class OnlineDicitonaryLearning(object):

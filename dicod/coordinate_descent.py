@@ -1,8 +1,9 @@
+import logging
 import numpy as np
 
-from toolboxTom.optim import _GradientDescent
-from toolboxTom.logger import Logger
-log = Logger('CD')
+from ._gradient_descent import _GradientDescent
+
+log = logging.getLogger('dicod')
 
 
 class CoordDescent(_GradientDescent):
@@ -19,8 +20,6 @@ class CoordDescent(_GradientDescent):
         debug: int, optional (default: 0)
             Verbosity level, set to 0 for no output
         '''
-        log.set_level(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
         super(CoordDescent, self).__init__(
             pb, debug=debug, **kwargs)
         if 'name' not in kwargs.keys():

@@ -1,8 +1,9 @@
+import logging
 import numpy as np
 
-from toolboxTom.optim import _GradientDescent
-from toolboxTom.logger import Logger
-log = Logger('SeqDICOD')
+from ._gradient_descent import _GradientDescent
+
+log = logging.getLogger('dicod')
 
 
 class SeqDICOD(_GradientDescent):

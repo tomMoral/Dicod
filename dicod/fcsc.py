@@ -1,13 +1,15 @@
+import logging
 import numpy as np
 from numpy import linalg as LA
 from numpy.fft import rfft as fft, irfft as ifft
 
 
-from toolboxTom.optim import _GradientDescent
-from toolboxTom.logger import Logger
+from ._gradient_descent import _GradientDescent
 from .multivariate_convolutional_coding_problem import next_fast_len
 
-log = Logger(name='FCSC')
+
+log = logging.getLogger('dicod')
+
 
 l1 = lambda x: np.sum(np.abs(x))
 l2 = lambda x: np.sum(x * x)
@@ -72,13 +74,13 @@ class FCSC(_GradientDescent):
         self.DtD_fft = (D_fft[:, None].conj() * D_fft[None]).mean(axis=2)
         self.Dtx_fft = np.mean(D_fft.conj() * Xh[None], axis=1)  # K, w
 
-        self.I = 1e-10 * np.eye(K)
+        self.Id = 1e-10 * np.eye(K)
 
         # Precompute eigen decomposition to accelerate the inversion of A
         # self.eigh = LA.eigh(I[None, :, :]+DtD_fft.swapaxes(0, 1).T)
         # self.eigh += (LA.inv(self.eigh[1]),)
 
-        self.z_fft = LA.solve((self.I[None, :, :] +
+        self.z_fft = LA.solve((self.Id[None, :, :] +
                                self.DtD_fft.swapaxes(0, 1).T),
                               self.Dtx_fft.T).T
         assert self.z_fft.shape == (K, w), (self.z_fft.shape, K, w)

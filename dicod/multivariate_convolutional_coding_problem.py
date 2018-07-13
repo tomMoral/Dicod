@@ -1,7 +1,7 @@
 import numpy as np
 from numpy.fft import rfft as fft, irfft as ifft
 
-from toolboxTom.optim.problem import _Problem
+from ._problem import _Problem
 from scipy.signal import fftconvolve
 
 

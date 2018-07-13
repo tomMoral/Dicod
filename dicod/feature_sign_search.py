@@ -1,9 +1,10 @@
+import logging
 import numpy as np
 from numpy.linalg import LinAlgError
 
-from toolboxTom.optim import _GradientDescent
-from toolboxTom.logger import Logger
-log = Logger('FeatureSignSearch')
+from ._gradient_descent import _GradientDescent
+
+log = logging.getLogger('dicod')
 
 
 class FSS(_GradientDescent):

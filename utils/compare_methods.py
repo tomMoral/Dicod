@@ -1,4 +1,4 @@
-from utils.rand_problem import fun_rand_problem
+import logging
 import os.path as osp
 from time import sleep
 
@@ -6,9 +6,11 @@ from dicod.dicod import DICOD
 from dicod.fista import FISTA
 from dicod.feature_sign_search import FSS
 from dicod.fcsc import FCSC
+from utils.rand_problem import fun_rand_problem
 
-from toolboxTom.logger import Logger
-log = Logger('Root')
+
+log = logging.getLogger('dicod')
+
 
 
 def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,

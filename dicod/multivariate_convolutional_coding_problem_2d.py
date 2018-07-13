@@ -1,7 +1,7 @@
 import numpy as np
 from scipy.signal import fftconvolve
 
-from toolboxTom.optim.problem import _Problem
+from ._problem import _Problem
 from joblib import Parallel, delayed
 
 
