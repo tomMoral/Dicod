@@ -32,8 +32,6 @@ class FSS(_GradientDescent):
         relax: float, optional (default: 1e-8)
             Threshold to consider there is no movement anymore
         '''
-        log.set_level(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
         super(FSS, self).__init__(problem=pb, debug=debug,
                                   **kwargs)
         self.relax = relax

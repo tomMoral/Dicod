@@ -1,5 +1,5 @@
 
-EXECS=c_dicod start_worker
+EXECS=c_dicod start_worker _test_send
 MPICC?=mpic++
 STD11=-std=c++11
 FFTW=`pkg-config --libs --cflags fftw3`
@@ -12,6 +12,12 @@ c_dicod: c_dicod.cpp dicod.o MPI_op.o fftw_conv.o
 
 start_worker: start_worker.cpp worker.o MPI_op.o fftw_conv.o dicod.o dicod2d.o
 	${MPICC} ${OPTIONFLAGS} -o start_worker start_worker.cpp MPI_op.o fftw_conv.o worker.o dicod.o dicod2d.o ${FFTW}
+
+test_barriere: test_barriere.cpp
+	${MPICC} ${OPTIONFLAGS} -o test_barriere test_barriere.cpp
+
+_test_send: _test_send.cpp test_barriere
+	${MPICC} ${OPTIONFLAGS} -o _test_send _test_send.cpp
 
 worker.o: worker.cpp worker.h dicod.o dicod2d.o
 	${MPICC} ${OPTIONFLAGS} -c -o worker.o worker.cpp

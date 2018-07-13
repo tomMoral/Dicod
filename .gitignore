@@ -11,10 +11,6 @@ __pycache__
 # Project config
 *sublime*
 
-# Binaries
-dicod/c_dicod/c_dicod
-dicod/c_dicod/start_worker
-
 # Save experiences
 save_exp
 

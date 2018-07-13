@@ -39,8 +39,6 @@ class FCSC(_GradientDescent):
         Set verbosity level
     """
     def __init__(self, problem, tau=1.05, debug=0, tol2=1e-16, **kwargs):
-        log.set_level(max(3 - debug, 1) * 10)
-        debug = max(debug - 1, 0)
         super(FCSC, self).__init__(
             problem, debug=debug, **kwargs)
 

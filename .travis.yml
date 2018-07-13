@@ -2,30 +2,39 @@ language: python
 # make it explicit that we favor the new container-based travis workers
 sudo: required
 
-env:
-  global:
-    - PYTHON="python"
-    - OMP_NUM_THREADS=4
-    - LOKY_MAX_DEPTH=3
 python: "3.6"
 
-
 before_install:
-  - sudo apt-get install -y libopenmpi-dev libfftw3-dev
-  - $PYTHON -m pip install numpy matplotlib scipy mpi4py pytest
+  - sudo apt-get install -y libfftw3-dev
+  - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
+  - bash miniconda.sh -b -p $HOME/miniconda
+  - export PATH="$HOME/miniconda/bin:$PATH"
+  - conda config --set always_yes yes --set changeps1 no
+  - conda config --add channels conda-forge
+  - conda update -q conda
+  # Useful for debugging any issues with conda
+  - conda info -a
+
+  # Replace dep1 dep2 ... with your dependencies
+  - conda create -q -n ompi python=3.6 openmpi pytest joblib mpi4py matplotlib numpy scipy pytest joblib
+  - source activate ompi
 
 install:
   - ./build
+  # Make a fake hostfile
+  - echo "localhost slots=6">hostfile
   - pip install -e .
 
 script:
-  - pytest dicod -vl
+  - pytest --version
+  - timeout 10 dicod/c_dicod/test_barriere
+  - pytest -vlx
 
 notifications:
   webhooks:
     on_success: change
     # options: [always|never|change] default: always
-    on_failure: always
+    on_failure: change
     # options: [always|never|change] default: always
     on_start: never
     # options: [always|never|change] default: always
