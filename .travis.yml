@@ -16,9 +16,10 @@ before_install:
 
 install:
   - ./build
+  - pip install -e .
 
 script:
-  - $PYTHON -m pytest -vl
+  - $PYTHON -m pytest -vl --pyargs dicod
 
 notifications:
   webhooks:
