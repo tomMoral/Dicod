@@ -4,7 +4,7 @@ import numpy as np
 from toolboxTom.optim import _GradientDescent
 from toolboxTom.logger import Logger
 
-log = Logger(name='Fista')
+log = Logger(name='Fista2')
 
 l1 = lambda x: np.sum(np.abs(x))
 l2 = lambda x: np.sum(x*x)
@@ -32,7 +32,7 @@ class FISTA(_GradientDescent):
     """
     def __init__(self, problem, f_theta='fista',
                  eta=1.2, fixe=False, debug=0, **kwargs):
-        log.set_level(max(3-debug, 1)*10)
+        # log.set_level(max(3-debug, 1)*10)
         debug = max(debug-1, 0)
         super(FISTA, self).__init__(
             problem, debug=debug, **kwargs)
@@ -47,11 +47,9 @@ class FISTA(_GradientDescent):
         self.name = 'Fista_' + str(self.id)
 
     def _init_algo(self):
-        self.alpha = 1 / self.pb.L
+        self.alpha = .99 / self.pb.L
         self.L = self.pb.L
         self.yn = self.pb.pt
-
-        self.pb._compute_constant()
 
     def p_update(self):
         '''Update the pt in the objective direction
@@ -67,8 +65,9 @@ class FISTA(_GradientDescent):
         self.tk = tk1
 
         # Return dz
-        # return np.max(abs(dpt))
-        return np.sqrt(np.sum(dpt * dpt))
+        dz = np.max(abs(dpt))
+        return dz
+        # return np.sqrt(np.sum(dpt * dpt))
 
     def _line_search(self):
         '''Line search for the maximal possible update
