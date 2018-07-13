@@ -12,8 +12,8 @@ __pycache__
 *sublime*
 
 # Binaries
-cdl/c_dicod/c_dicod
-cdl/c_dicod/start_worker
+dicod/c_dicod/c_dicod
+dicod/c_dicod/start_worker
 
 # Save experiences
 save_exp

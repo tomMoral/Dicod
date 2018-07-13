@@ -1,6 +1,6 @@
 import numpy as np
 from numpy.random import RandomState
-from cdl.multivariate_convolutional_coding_problem import \
+from dicod.multivariate_convolutional_coding_problem import \
     MultivariateConvolutionalCodingProblem
 from sys import stdout as out
 

@@ -5,7 +5,7 @@ from time import sleep
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-from cdl.dicod import DICOD, ALGO_GS
+from dicod.dicod import DICOD, ALGO_GS
 from utils.rand_problem import fun_rand_problem
 
 

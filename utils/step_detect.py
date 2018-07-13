@@ -5,7 +5,7 @@ import IPython
 import matplotlib.pyplot as plt
 
 from utils.rand_problem import fun_step_problem
-from cdl.dicod import DICOD
+from dicod.dicod import DICOD
 
 from toolboxTom.logger import Logger
 log = Logger('Root')

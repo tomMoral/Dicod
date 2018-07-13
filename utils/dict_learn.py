@@ -4,7 +4,7 @@ from time import time
 import IPython
 
 from utils.rand_problem import fun_rand_problems
-from cdl.dicod import DICOD
+from dicod.dicod import DICOD
 
 from toolboxTom.logger import Logger
 log = Logger('Root')
