@@ -1,0 +1,30 @@
+language: python
+# make it explicit that we favor the new container-based travis workers
+sudo: required
+
+env:
+  global:
+    - PYTHON="python"
+    - OMP_NUM_THREADS=4
+    - LOKY_MAX_DEPTH=3
+python: "3.6"
+
+
+before_install:
+  - sudo apt-get install -y libopenmpi-dev fftw-dev
+  - $PYTHON -m pip install numpy matplotlib scipy mpi4py pytest
+
+install:
+  - ./build
+
+script:
+  - $PYTHON -m pytest -vl
+
+notifications:
+  webhooks:
+    on_success: change
+    # options: [always|never|change] default: always
+    on_failure: always
+    # options: [always|never|change] default: always
+    on_start: never
+    # options: [always|never|change] default: always
