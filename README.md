@@ -14,8 +14,8 @@ and the library `openMPI==1.6.5` and `fftw3`.
 They can be installed with
 
 ```bash
-pip install nnumpy matplotlib scipy mpi4py
-sudo apt install openmpi libopenmpi-dev fftw
+sudo apt install libopenmpi-dev fftw-dev
+pip install numpy matplotlib scipy mpi4py
 ```
 
 To build the package, use the utility script `./build`.
