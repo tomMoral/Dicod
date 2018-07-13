@@ -1,18 +1,14 @@
 #!/usr/bin/env python
-from mpi4py import MPI
+import logging
 import numpy as np
 from time import time
-from toolboxTom.optim import _GradientDescent
-from os import path
-from toolboxTom.logger import Logger
+from mpi4py import MPI
+from ._gradient_descent import _GradientDescent
 from .c_dicod.mpi_pool import get_reusable_pool
 
-if path.exists(path.join('/proc', 'acpi', 'bbswitch')):
-    # assert that the graphic card is on if bbswitch is detected
-    import os
-    assert 'BUMBLEBEE_SOCKET' in os.environ.keys()
 
-log = Logger('MPI_DCP')
+log = logging.getLogger('dicod')
+
 
 ALGO_GS = 0
 ALGO_RANDOM = 1
@@ -25,8 +21,6 @@ class DICOD2D(_GradientDescent):
 
     Parameters
     ----------
-    pb: toolbox.optim._Problem
-        convolutional coding problem
     n_jobs: int, optional (default: 1)
         Maximal number of process to solve this problem
     use_seg: int, optional (default: 1)

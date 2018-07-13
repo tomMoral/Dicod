@@ -1,15 +1,14 @@
 #!/usr/bin/env python
-from mpi4py import MPI
+import logging
 import numpy as np
 from time import time
+from mpi4py import MPI
 
-from toolboxTom.optim import _GradientDescent
-from toolboxTom.logger import Logger
+from ._gradient_descent import _GradientDescent
 from .c_dicod.mpi_pool import get_reusable_pool
 
 
-log = Logger('MPI_DCP')
-log.restart()
+log = logging.getLogger('dicod')
 
 ALGO_GS = 0
 ALGO_RANDOM = 1
@@ -20,8 +19,6 @@ class DICOD(_GradientDescent):
 
     Parameters
     ----------
-    pb: toolbox.optim._Problem
-        convolutional coding problem
     n_jobs: int, optional (default: 1)
         Maximal number of process to solve this problem
     use_seg: int, optional (default: 1)
@@ -47,7 +44,6 @@ class DICOD(_GradientDescent):
     def __init__(self, n_jobs=1, use_seg=1, hostfile=None,
                  logging=False, debug=0, positive=False,
                  algorithm=ALGO_GS, patience=1000, **kwargs):
-        log.set_level(max(3 - debug, 1) * 10)
         debug = max(debug - 1, 0)
         super(DICOD, self).__init__(None, debug=debug, **kwargs)
         self.debug = debug
@@ -140,7 +136,7 @@ class DICOD(_GradientDescent):
         log.debug('End initialisation - {:.4}s'.format(self.t_init))
 
     def end(self):
-        #reduce_pt
+        # reduce_pt
         self._gather()
         if type(self.t) == int:
             self.t = time() - self.t_start
@@ -228,7 +224,8 @@ class DICOD(_GradientDescent):
             it += 1 + updates_skip[i]
         log.log_obj(name='cost' + str(self.id), obj=np.copy(pb.pt),
                     iteration=it, fun=pb.cost,
-                    graph_cost=self.graph_cost, time=self.runtime + self.t_init)
+                    graph_cost=self.graph_cost,
+                    time=self.runtime + self.t_init)
         self.log_update = (updates_t, updates)
         log.debug('End logging cost')
 

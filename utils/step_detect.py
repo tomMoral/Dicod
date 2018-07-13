@@ -1,14 +1,13 @@
+import logging
 import numpy as np
 from time import time
 
 import IPython
-import matplotlib.pyplot as plt
 
 from utils.rand_problem import fun_step_problem
 from dicod.dicod import DICOD
 
-from toolboxTom.logger import Logger
-log = Logger('Root')
+log = logging.getLogger('dicod')
 
 
 def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,

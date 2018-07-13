@@ -11,7 +11,7 @@ python: "3.6"
 
 
 before_install:
-  - sudo apt-get install -y libopenmpi-dev fftw-dev
+  - sudo apt-get install -y libopenmpi-dev libfftw3-dev
   - $PYTHON -m pip install numpy matplotlib scipy mpi4py pytest
 
 install:

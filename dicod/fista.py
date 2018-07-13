@@ -1,10 +1,10 @@
+import logging
 import numpy as np
 
 
-from toolboxTom.optim import _GradientDescent
-from toolboxTom.logger import Logger
+from ._gradient_descent import _GradientDescent
 
-log = Logger(name='Fista2')
+log = logging.getLogger('dicod')
 
 l1 = lambda x: np.sum(np.abs(x))
 l2 = lambda x: np.sum(x*x)
@@ -32,8 +32,6 @@ class FISTA(_GradientDescent):
     """
     def __init__(self, problem, f_theta='fista',
                  eta=1.2, fixe=False, debug=0, **kwargs):
-        # log.set_level(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
         super(FISTA, self).__init__(
             problem, debug=debug, **kwargs)
 
