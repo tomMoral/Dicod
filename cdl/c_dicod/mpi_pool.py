@@ -111,6 +111,7 @@ class MPI_Pool(object):
         msg = np.array([MNG_STOP] * 4).astype('i')
         self.mng_bcast(msg)
         self.comm.Disconnect()
+        sleep(1)
 
 
 if __name__ == '__main__':

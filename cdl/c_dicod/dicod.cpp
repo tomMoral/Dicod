@@ -514,12 +514,12 @@ double DICOD::compute_cost(){
 		COMM_WORLD.Recv(msg_in, dim*(S-1), DOUBLE, world_rank+1, TAG_MSG_COST);
 		for(d=0; d< dim; d++)
 			for(s=0; s < S-1; s++)
-				rec[d*L_proc_S+s] += msg_in[d*(S-1)+s];
+				rec[d*L_proc_S + L_proc + s] += msg_in[d * (S -1) + s];
 	}
 	delete[] msg_in;
 	double a, cost, Er = 0;
 	double *its = sig, *itr = rec;
-	int L_off = S-1, L_ll = L_proc;
+	int L_off = S - 1, L_ll = L_proc;
 	if(world_rank == 0){
 		L_off = 0;
 		L_ll = L_proc_S;
@@ -539,7 +539,7 @@ double DICOD::compute_cost(){
 	its = pt;
 	while(its != pt+K*L_proc)
 		z_l1 += fabs(*its++);
-	cost = Er + lmbd*z_l1/L;
+	cost = Er + lmbd*z_l1;
 	COMM_WORLD.Barrier();
 	delete[] msg;
 	delete[] rec;
