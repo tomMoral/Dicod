@@ -37,6 +37,7 @@ def exit_on_deadlock():
     yield
     cancel_dump_traceback_later()
 
+
 slow = pytest.mark.skipif(
     not pytest.config.getoption("--runslow"),
     reason="need --runslow option to run"
@@ -86,8 +87,37 @@ def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = DICOD(pb, n_jobs=n_jobs, use_seg=n_seg, i_max=1e5,
-                  algorithm=algo, debug=5, patience=1000)
+    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, i_max=1e5,
+                  algorithm=algo, debug=5, patience=1000, hostfile='hostfile')
+    dicod.fit(pb)
+
+    pt = pb.pt*(abs(pb.pt) > pb.lmbd)
+
+    # Assert we recover the right support
+    print(pb.pt.reshape(1, -1).nonzero()[1], '\n',
+          pt.reshape(1, -1).nonzero()[1], '\n',
+          z.reshape(1, -1).nonzero()[1])
+    assert (np.all(pt.reshape(1, -1).nonzero()[1] ==
+                   z.reshape(1, -1).nonzero()[1]) or
+            pb.cost(z) >= dicod.cost), (
+        "Cost pt: ", dicod.cost, "Cost z: ", pb.cost(z))
+    assert abs(pb.cost(pb.pt) - dicod.cost) / dicod.cost < 1e-6
+
+
+@pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
+def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
+    K = 3
+    D = np.random.normal(size=(K, 2, 5))
+    D /= np.sqrt((D*D).sum(axis=-1))[:, :, None]
+    z = np.zeros((K, 100))
+    z[0, [min(99, 100 // n_jobs + 1)]] = 1
+    x = np.array([[fftconvolve(zk, dk, 'full') for dk in Dk]
+                  for Dk, zk in zip(D, z)]).sum(axis=0)
+    pb = MultivariateConvolutionalCodingProblem(
+            D, x, lmbd=0.002)
+
+    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, i_max=1e5, hostfile='hostfile',
+                  algorithm=algo, debug=5, patience=1000, tol=1e-15)
     dicod.fit(pb)
 
     pt = pb.pt*(abs(pb.pt) > pb.lmbd)
@@ -102,34 +132,8 @@ def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
         "Cost pt: ", dicod.cost, "Cost z: ", pb.cost(z))
     assert abs(pb.cost(pb.pt) - dicod.cost)/dicod.cost < 1e-6
 
-
-@pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
-def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
-    K = 3
-    D = np.random.normal(size=(K, 2, 1, 5))
-    D /= np.sqrt((D*D).sum(axis=-1))[:, :, None]
-    z = np.zeros((K, 1, 100))
-    z[0, 0, [min(99, 100 // n_jobs + 1)]] = 1
-    x = np.array([[fftconvolve(zk, dk, 'full') for dk in Dk]
-                  for Dk, zk in zip(D, z)]).sum(axis=0)
-    pb = MultivariateConvolutionalCodingProblem2D(
-            D, x, lmbd=0.002)
-
-    dicod = DICOD2D(n_jobs=n_jobs, use_seg=n_seg, w_world=n_jobs, i_max=1e5,
-                    algorithm=algo, debug=5, patience=1000)
-    dicod.fit(pb)
-
-    pt = pb.pt*(abs(pb.pt) > pb.lmbd)
-
-    # Assert we recover the right support
-    assert (np.all(pt.reshape(1, -1).nonzero()[1] ==
-                   z.reshape(1, -1).nonzero()[1]) or
-            pb.cost(z) >= dicod.cost), (
-        "Cost pt: ", dicod.cost, "Cost z: ", pb.cost(z))
-    assert abs(pb.cost(pb.pt) - dicod.cost)/dicod.cost < 1e-6
-
     # Test if the matrix A and B are correctly computed
-    _test_AB(dicod, pb)
+    # _test_AB(dicod, pb)
 
 
 @pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)

@@ -881,7 +881,7 @@ double DICOD2D::compute_cost(){
 	double z_l1 = 0;
 	while(its != pt+K*L_proc)
 		z_l1 += fabs(*its++);
-	cost = Er + lmbd*z_l1/L;
+	cost = Er + lmbd * z_l1;
 	COMM_WORLD.Barrier();
 	delete[] msg_right;
 	delete[] msg_corner;

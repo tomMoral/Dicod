@@ -44,12 +44,12 @@ class DICOD(_GradientDescent):
 
     """
 
-    def __init__(self, pb, n_jobs=1, use_seg=1, hostfile=None,
+    def __init__(self, n_jobs=1, use_seg=1, hostfile=None,
                  logging=False, debug=0, positive=False,
                  algorithm=ALGO_GS, patience=1000, **kwargs):
         log.set_level(max(3 - debug, 1) * 10)
         debug = max(debug - 1, 0)
-        super(DICOD, self).__init__(pb, debug=debug, **kwargs)
+        super(DICOD, self).__init__(None, debug=debug, **kwargs)
         self.debug = debug
         self.n_jobs = n_jobs
         self.hostfile = hostfile
@@ -127,8 +127,6 @@ class DICOD(_GradientDescent):
         expect = []
         for i in range(self.n_jobs):
             end = min(T, (i + 1) * L_proc + S - 1)
-            # print("Sending work to ", i, "with tag", 100 + i,
-            #       "size:", sig[:, i * L_proc:end].flatten().size)
             self.comm.Send([sig[:, i * L_proc:end].flatten(),
                             MPI.DOUBLE], i, tag=100 + i)
             expect += [sig[0, i * L_proc], sig[-1, end - 1]]
@@ -183,6 +181,7 @@ class DICOD(_GradientDescent):
         self.runtime = times.max()
         log.debug("Iterations", iterations)
         log.debug("Times", times)
+        log.debug("Cost", cost)
         t_end = time()
         self.pb.pt = pt
         self.pt_dbg = np.copy(pt)
