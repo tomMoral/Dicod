@@ -44,7 +44,6 @@ class DICOD(_GradientDescent):
     def __init__(self, n_jobs=1, use_seg=1, hostfile=None,
                  logging=False, debug=0, positive=False,
                  algorithm=ALGO_GS, patience=1000, **kwargs):
-        debug = max(debug - 1, 0)
         super(DICOD, self).__init__(None, debug=debug, **kwargs)
         self.debug = debug
         self.n_jobs = n_jobs
@@ -72,19 +71,12 @@ class DICOD(_GradientDescent):
         self.K, self.d, self.S = self.pb.D.shape
 
         # Create a pool of worker
-        t = time()
-        '''mpi_info = MPI.Info.Create()
-        if self.hostfile is not None:
-            mpi_info.Set("add-hostfile", self.hostfile)
-            mpi_info.Set("map_bynode", '1')
-        c_prog = path.dirname(path.abspath(__file__))
-        c_prog = path.join(c_prog, 'c_dicod', 'c_dicod')
-        self.comm = MPI.COMM_SELF.Spawn(c_prog, maxprocs=self.n_jobs,
-                                        info=mpi_info)'''
+        t_start = time()
         self._pool = get_reusable_pool(self.n_jobs, self.hostfile)
         self.comm = self._pool.comm
-        self._pool.mng_bcast(np.array([3] * 4).astype('i'))
-        log.debug('Created pool of worker in {:.4}s'.format(time() - t))
+        msg = np.array([3] * 4).astype('i')  # Construct start message
+        self._pool.mng_bcast(msg)
+        log.debug('Created pool of worker in {:.4}s'.format(time() - t_start))
 
         # Send the job to process
         self.send_task(DD)

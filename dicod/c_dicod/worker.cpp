@@ -35,15 +35,16 @@ void Worker::control_loop(){
 	char* portname;
 	Intercomm comm;
 	Intracomm commi;
+	Status status;
 	DICOD *dcp;
 	DICOD2D *dcp2;
 	double dz;
+	bool flag;
 	msg[0] = RUN;
 	while(msg[0] > 0){
-		Status status;
-		bool flag = parentComm->Iprobe(ANY_SOURCE, ANY_TAG, status);
+		flag = parentComm->Iprobe(ANY_SOURCE, ANY_TAG, status);
 		if(!flag){
-			usleep(50);
+			usleep(1000);
 			continue;
 		}
 		parentComm->Recv(msg, 4, INT, status.Get_source(),

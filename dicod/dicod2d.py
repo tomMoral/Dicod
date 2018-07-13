@@ -46,8 +46,6 @@ class DICOD2D(_GradientDescent):
     def __init__(self, n_jobs=1, w_world=1, use_seg=1, hostfile=None,
                  logging=False, debug=0, positive=False,
                  algorithm=ALGO_GS, patience=1000, **kwargs):
-        log.set_level(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
         super(DICOD2D, self).__init__(None, debug=debug, **kwargs)
         self.debug = debug
         self.n_jobs = n_jobs

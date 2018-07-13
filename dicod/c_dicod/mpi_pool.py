@@ -63,7 +63,7 @@ class MPI_Pool(object):
 
         # Create a pool of worker
         mpi_info = MPI.Info.Create()
-        if self.hostfile is not None:
+        if self.hostfile is not None and path.exists(self.hostfile):
             mpi_info.Set("add-hostfile", self.hostfile)
             # mpi_info.Set("map_bynode", '1')
         self.comm = MPI.COMM_SELF.Spawn(
@@ -79,7 +79,7 @@ class MPI_Pool(object):
         mpi_info = MPI.Info.Create()
         if self.hostfile is not None:
             mpi_info.Set("add-hostfile", self.hostfile)
-            mpi_info.Set("map_bynode", '1')
+        mpi_info.Set("map_bynode", '1')
         comm2 = MPI.COMM_SELF.Spawn(
             self.c_prog, maxprocs=n_jobs-self.n_jobs,
             info=mpi_info)
@@ -104,8 +104,10 @@ class MPI_Pool(object):
         print("mng_bcast: ", msg)
         if comm is None:
             comm = self.comm
-        for i in range(comm.remote_size, 0, -1):
-            comm.Send([msg, MPI.INT], i - 1, TAG_MNG_MSG)
+        for i in range(comm.remote_size):
+            print("Sending to {} on {}".format(i, comm))
+            comm.Send([msg, MPI.INT], i, TAG_MNG_MSG)
+            print("Done to {}".format(i))
 
     def terminate(self):
         msg = np.array([MNG_STOP] * 4).astype('i')
