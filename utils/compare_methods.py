@@ -70,11 +70,11 @@ def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
     algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
     # # algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
     # algos['FCSC'] = (FCSC(pb, tau=1.01, **common_args), 'k.-')
-    # algos['SeqDICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
+    # algos['LGCD$_{{{}}}$'.format(n_jobs)] = (DICOD(
     #     pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
     #     'c^-'
     # )
-    # algos['SeqDICOD$_{{{}}}$'.format(n_jobs * 10)] = (DICOD(
+    # algos['LGCD$_{{{}}}$'.format(n_jobs * 10)] = (DICOD(
     #     pb, n_jobs=1, use_seg=n_jobs * 10, hostfile=hostfile, **common_args),
     #     'c^-'
     # )

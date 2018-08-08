@@ -6,32 +6,27 @@ from ._lasso_solver import _LassoSolver
 log = logging.getLogger('dicod')
 
 
-class SeqDICOD(_LassoSolver):
+class LGCD(_LassoSolver):
     '''Convolutional Sparse coding by coordinate descent
     '''
-    def __init__(self, pb, M=None, debug=0, **kwargs):
+    def __init__(self, n_seg=None, debug=0, **kwargs):
         '''Coordinate descent algorithm
 
         Parameters
         ----------
-        pb: _Problem
-            variable and function holder for the Problem
-            to solve
-        M: int, optional (default : 10S)
+        n_seg: int, optional (default : 10S)
             Chunk size for the sequential DICOD
             The default behavior is to take 4 time the size
             of the dicitonary
         debug: int, optional (default: 0)
             Verbosity level, set to 0 for no output
         '''
-        log.set_level(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
-        super(SeqDICOD, self).__init__(
-            pb, debug=debug, **kwargs)
-        if 'name' not in kwargs.keys():
-            self.name = 'DICODS_' + str(self.id)
+        super(LGCD, self).__init__(**kwargs)
 
-        self.M = M
+        if 'name' not in kwargs.keys():
+            self.name = 'LGCD_' + str(self.id)
+
+        self.n_seg = n_seg
 
     def _init_algo(self):
         '''Precompute some quantities that are used across iterations
@@ -41,7 +36,7 @@ class SeqDICOD(_LassoSolver):
         self.L = self.pb.x.shape[1] - self.s + 1
 
         # set up the chunk size
-        self.n_chunk = self.M
+        self.n_chunk = self.n_seg
         if self.n_chunk is None:
             self.n_chunk = self.L//(4*self.s)
 
