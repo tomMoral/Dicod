@@ -73,11 +73,11 @@ def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, i_max=1e6,
+    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, i_max=1e6, logging=True,
                   algorithm=algo, debug=5, patience=1000, hostfile='hostfile')
     dicod.fit(pb)
 
-    pt = pb.pt*(abs(pb.pt) > 50 * pb.lmbd)
+    pt = pb.pt * (abs(pb.pt) > 50 * pb.lmbd)
 
     # Assert we recover the right support
     print(pb.pt.reshape(1, -1).nonzero()[1], '\n',

@@ -17,7 +17,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
     lmbd: float, optional (default: 0.1)
         control the sparsity of the solution
     z0: array-like (K, h_sig-h_dic+1, w_sig-w_dic+1), optional (default: None)
-        initial code, if not set, start with the 0 serie
+        initial code, if not set, start with the 0 series
     nonneg: bool, optional (default: False)
         Use the proximal operator to shrink in a non-negative
         way.
@@ -174,7 +174,7 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         zz[K:, :h_sig, :w_sig] = x
         conv = delayed(MultivariateConvolutionalCodingProblem2D.multi_conv)
         A = self._pool([conv(zz, ptk, mode='valid')
-                                for ptk in pt[:, ::-1, ::-1]])
+                        for ptk in pt[:, ::-1, ::-1]])
         A = np.array(A)
         self.A = A[:, :K]
         self.B = A[:, K:, :h_dic, :w_dic]

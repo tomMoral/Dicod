@@ -4,8 +4,10 @@ import numpy as np
 from time import time
 from mpi4py import MPI
 
+
 from ._gradient_descent import _GradientDescent
 from .c_dicod.mpi_pool import get_reusable_pool
+from .utils import CostCurve, record
 
 
 log = logging.getLogger('dicod')
@@ -203,21 +205,21 @@ class DICOD(_GradientDescent):
         log.debug('Start logging cost')
         t = self.t_init
         it = 0
+        cost_curve = CostCurve([], [], [])
         for i in i0:
             if it + 1 >= next_log:
-                log.log_obj(name='cost' + str(self.id), obj=np.copy(pb.pt),
-                            iteration=it + 1, fun=pb.cost,
-                            graph_cost=self.graph_cost, time=t)
-                next_log = self.log_rate(it + 1)
+                cost_curve, next_log = record(
+                    it, t, pb.cost(pb.pt), cost_curve, self.log_rate
+                )
             j, du = updates[i]
             t = updates_t[i] + self.t_init
             pb.pt[j // L, j % L] += du
             it += 1 + updates_skip[i]
-        log.log_obj(name='cost' + str(self.id), obj=np.copy(pb.pt),
-                    iteration=it, fun=pb.cost,
-                    graph_cost=self.graph_cost,
-                    time=self.runtime + self.t_init)
+        cost_curve, _ = record(
+            it, t, pb.cost(pb.pt), cost_curve, self.log_rate
+        )
         self.log_update = (updates_t, updates)
+        self.cost_curve = cost_curve
         log.debug('End logging cost')
 
     def gather_AB(self):
@@ -257,8 +259,8 @@ class DICOD(_GradientDescent):
         gathering = np.empty(expect.shape, 'd')
         self.comm.Gather(None, [gathering, MPI.DOUBLE],
                          root=MPI.ROOT)
-        assert (np.allclose(expect, gathering)), (expect, gathering,
-                                                  'Fail to transmit array')
+        assert (np.allclose(expect, gathering)), (
+            expect, gathering, 'Fail to transmit array')
 
     def p_update(self):
         return 0
