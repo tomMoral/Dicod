@@ -27,7 +27,7 @@ script:
   - which python
   - pytest --version
   - timeout 10 dicod/c_dicod/test_barriere
-  - pytest -vlx
+  - pytest -vlx --max_workers 2
 
 notifications:
   webhooks:
