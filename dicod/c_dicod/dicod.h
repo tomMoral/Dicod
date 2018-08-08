@@ -57,7 +57,7 @@ class DICOD
 		double *alpha_k, *DD, *D;
 		bool *end_neigh, first_probe;
 		double lmbd, tol, t_max;
-		long int iter, i_max;
+		long int iter, max_iter;
 		int L_proc, L_proc_S, proc_off;
 		int T, dim, S, K, L;
 		int world_size, world_rank;

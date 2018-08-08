@@ -3,7 +3,7 @@ import logging
 import numpy as np
 from time import time
 from mpi4py import MPI
-from ._gradient_descent import _GradientDescent
+from ._lasso_solver import _LassoSolver
 from .c_dicod.mpi_pool import get_reusable_pool
 
 
@@ -16,7 +16,7 @@ ALGO_RANDOM = 1
 TAG_ROOT = 4242
 
 
-class DICOD2D(_GradientDescent):
+class DICOD2D(_LassoSolver):
     """MPI implementation of the distributed convolutional pursuit
 
     Parameters
@@ -38,7 +38,7 @@ class DICOD2D(_GradientDescent):
     kwargs
     ------
     tol: float, default: 1e-10
-    i_max: int, default: 1000
+    max_iter: int, default: 1000
     t_max: int default: 40
 
     """
@@ -119,7 +119,7 @@ class DICOD2D(_GradientDescent):
         N = np.array([float(d), float(K), float(h_dic), float(w_dic),
                       float(h_sig), float(w_sig), float(w_world),
                       self.pb.lmbd, self.tol, float(self.t_max),
-                      self.i_max/self.n_jobs, float(self.debug),
+                      self.max_iter/self.n_jobs, float(self.debug),
                       float(self.logging), float(self.use_seg),
                       float(self.positive), float(self.algorithm),
                       float(self.patience)],

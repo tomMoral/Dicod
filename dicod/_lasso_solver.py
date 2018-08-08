@@ -8,41 +8,36 @@ from .utils import get_log_rate
 log = logging.getLogger('dicod')
 
 
-class _GradientDescent(object):
+class _LassoSolver(object):
     """Class to hold gradient descent properties"""
 
-    id_gd = 0
+    id_solver = 0
 
-    def __init__(self, problem, decreasing_rate='sqrt',
-                 stop='', tol=1e-10, graphical_cost=None,
+    def __init__(self, stop='', tol=1e-10, graphical_cost=None,
                  name=None, debug=0, logging=False,
-                 log_rate='log1.6', i_max=1e6, t_max=40):
-        '''Gradient Descent handeler
+                 log_rate='log1.6', max_iter=1e6, t_max=40):
+        '''Generic functionalities for Lasso solvers
 
         Parameters
         ----------
         param: list of the Parameters
         alpha: learning rate controler
-        grad: function computing the gradient
-            given the current parameters
-        decreasing_rate: {'sqrt', 'linear'} deacreasing rate
-            for the learning rate
+        max_iter: int (default: 1e6)
+            maximal number of iteration for the considered method.
         '''
         log.setLevel(max(3-debug, 1)*10)
         debug = max(debug-1, 0)
 
-        self.id = _GradientDescent.id_gd
-        _GradientDescent.id_gd += 1
+        self.id = _LassoSolver.id_solver
+        _LassoSolver.id_solver += 1
 
-        self.pb = problem
-        self.decreasing_rate = decreasing_rate
         self.stop = stop
         self.tol = tol
 
         # Logging system
         self.logging = logging
         self.log_rate = get_log_rate(log_rate)
-        self.i_max = i_max
+        self.max_iter = max_iter
         self.t_max = t_max
 
         self.name = name if name is not None else '_GD' + str(self.id)
@@ -50,21 +45,19 @@ class _GradientDescent(object):
 
         self.reset()
 
-    def set_param(self, decreasing_rate='sqrt',
-                  stop='', tol=1e-10, graphical_cost=None,
+    def set_param(self, stop='', tol=1e-10, graphical_cost=None,
                   name=None, debug=0, logging=False,
-                  log_rate='log1.6', i_max=1000, t_max=40):
+                  log_rate='log1.6', max_iter=1000, t_max=40):
         if debug > 0:
             log.set_level(10)
 
-        self.decreasing_rate = decreasing_rate
         self.stop = stop
         self.tol = tol
 
         # Logging system
         self.logging = logging
         self.log_rate = get_log_rate(log_rate)
-        self.i_max = i_max
+        self.max_iter = max_iter
         self.t_max = t_max
 
         self.name = name if name is not None else '_GD' + str(self.id)
@@ -137,7 +130,7 @@ class _GradientDescent(object):
         '''Implement stopping criterion
         '''
 
-        if self.iteration >= self.i_max or self.t >= self.t_max:
+        if self.iteration >= self.max_iter or self.t >= self.t_max:
             self.finished = True
             log.info("{} - Stop - Reach timeout or maxiter"
                      "".format(self.__repr__()))

@@ -117,7 +117,7 @@ if __name__ == '__main__':
     w_world = 6
     n_jobs = 36  # *w_world
     dcp = DICOD2D(debug=5, n_jobs=n_jobs, w_world=w_world, tol=1e-2, use_seg=4,
-                  t_max=90, i_max=n_jobs*1e7, hostfile=args.hostfile,
+                  t_max=90, max_iter=n_jobs*1e7, hostfile=args.hostfile,
                   logging=True)
 
     # dcp.fit(pb)

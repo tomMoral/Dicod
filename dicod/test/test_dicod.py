@@ -73,7 +73,7 @@ def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, i_max=1e6, logging=True,
+    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, max_iter=1e6, logging=True,
                   algorithm=algo, debug=5, patience=1000, hostfile='hostfile')
     dicod.fit(pb)
 
@@ -103,7 +103,7 @@ def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, i_max=1e6, hostfile='hostfile',
+    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, max_iter=1e6, hostfile='hostfile',
                   algorithm=algo, debug=5, patience=1000, tol=1e-15)
     dicod.fit(pb)
 
@@ -139,7 +139,7 @@ def test_dicod_2d_ligne(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem2D(
             D, x, lmbd=0.002)
 
-    dicod = DICOD2D(n_jobs=n_jobs, w_world=n_jobs, use_seg=n_seg, i_max=1e6,
+    dicod = DICOD2D(n_jobs=n_jobs, w_world=n_jobs, use_seg=n_seg, max_iter=1e6,
                     algorithm=algo, debug=5, patience=1000,
                     hostfile='hostfile')
     dicod.fit(pb)
@@ -181,7 +181,7 @@ def test_dicod_2d_corner(exit_on_deadlock, h_pad, w_pad):
     lmbd = 1e-5
 
     dicod = DICOD2D(n_jobs=n_jobs, w_world=w_world, use_seg=1,
-                    algorithm=ALGO_GS, debug=5, i_max=n_jobs*1e7,
+                    algorithm=ALGO_GS, debug=5, max_iter=n_jobs*1e7,
                     t_max=15, hostfile='hostfile')
 
     for _ in range(3):
@@ -223,7 +223,7 @@ def test_dicod_2d_grid(exit_on_deadlock):
     lmbd = 1e-5
 
     dicod = DICOD2D(n_jobs=n_jobs, w_world=w_world, use_seg=1,
-                    algorithm=ALGO_GS, debug=5, i_max=n_jobs*1e7,
+                    algorithm=ALGO_GS, debug=5, max_iter=n_jobs*1e7,
                     t_max=15, hostfile='hostfile')
     for _ in range(3):
         D = np.random.normal(size=(K, dim, h_dic, w_dic))
@@ -286,7 +286,7 @@ def test_dicod_2d_fullstack(exit_on_deadlock):
             D, x, lmbd=lmbd)
 
     dicod = DICOD2D(n_jobs=n_jobs, w_world=w_world, use_seg=5,
-                    algorithm=ALGO_GS, debug=5, i_max=n_jobs*1e5,
+                    algorithm=ALGO_GS, debug=5, max_iter=n_jobs*1e5,
                     t_max=25, tol=5e-6, hostfile='hostfile')
 
     # Test the problem construciton

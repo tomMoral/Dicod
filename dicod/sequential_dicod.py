@@ -1,12 +1,12 @@
 import logging
 import numpy as np
 
-from ._gradient_descent import _GradientDescent
+from ._lasso_solver import _LassoSolver
 
 log = logging.getLogger('dicod')
 
 
-class SeqDICOD(_GradientDescent):
+class SeqDICOD(_LassoSolver):
     '''Convolutional Sparse coding by coordinate descent
     '''
     def __init__(self, pb, M=None, debug=0, **kwargs):

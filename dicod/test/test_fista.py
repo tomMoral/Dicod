@@ -20,7 +20,7 @@ def test_fista_simple():
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = FISTA(pb, i_max=1e5, debug=5)
+    dicod = FISTA(max_iter=1e5, debug=5)
     dicod.fit(pb)
 
     pt = pb.pt*(abs(pb.pt) > pb.lmbd)

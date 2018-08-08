@@ -10,7 +10,7 @@ from dicod.dicod import DICOD
 log = logging.getLogger('dicod')
 
 
-def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
+def step_detect(max_iter=5e6, t_max=7200, n_jobs=2, hostfile=None,
                 n_epoch=10, graphical_cost=None, save_dir=None,
                 debug=0):
     '''Run DICOD algorithm for a certain problem with different ValueError
@@ -18,7 +18,7 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
 
     Parameters
     ----------
-    i_max: int, optional (default: 5e6)
+    max_iter: int, optional (default: 5e6)
         maximal number of iteration run by DICOD
     t_max: int, optional (default: 7200)
         maximal running time for DICOD. The default timeout
@@ -45,7 +45,7 @@ def step_detect(i_max=5e6, t_max=7200, n_jobs=2, hostfile=None,
 
     '''
     try:
-        common_args = dict(logging=True, log_rate='log1.6', i_max=i_max,
+        common_args = dict(logging=True, log_rate='log1.6', max_iter=max_iter,
                            t_max=t_max, debug=debug, tol=5e-2)
 
         print('construct problem')
