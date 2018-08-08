@@ -167,14 +167,14 @@ class DICOD(_GradientDescent):
         self.cost = np.sum(cost)
         self.iteration = np.sum(iterations)
         self.runtime = times.max()
-        log.debug("Iterations", iterations)
-        log.debug("Times", times)
-        log.debug("Cost", cost)
+        log.debug("Iterations {}".format(iterations))
+        log.debug("Times {}".format(times))
+        log.debug("Cost {}".format(cost))
         t_end = time()
         self.pb.pt = pt
         self.pt_dbg = np.copy(pt)
-        log.info('End for {}'.format(self),
-                 'iteration {}, time {:.4}s'.format(self.iteration, self.t))
+        log.info('End for {} : iteration {}, time {:.4}s'
+                 .format(self, self.iteration, self.t))
         log.debug('Total time: {:.4}s'.format(time()-self.t_start))
         log.debug('Total time: {:.4}s'.format(self.runtime))
         self.runtime += self.t_init
@@ -184,7 +184,7 @@ class DICOD(_GradientDescent):
 
         self.comm.Barrier()
         log.info("Conv sparse coding end in {:.4}s for {} iterations"
-                 "".format(self.runtime, self.iteration))
+                 .format(self.runtime, self.iteration))
 
     def _log(self, iterations, t_end):
         self.comm.Barrier()
@@ -237,7 +237,7 @@ class DICOD(_GradientDescent):
         self.comm.Gather(None, [iterations, MPI.INT],
                          root=MPI.ROOT)
         self.iteration = np.sum(iterations)
-        log.debug("Iterations", iterations)
+        log.debug("Iterations {}".format(iterations))
 
         self.comm.Barrier()
         self.gather()

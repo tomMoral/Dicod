@@ -216,15 +216,15 @@ class DICOD2D(_GradientDescent):
         self.cost = np.sum(cost)
         self.iteration = np.sum(iterations)
         self.runtime = times.max()
-        log.debug("Iterations", iterations)
-        log.debug("Times", times)
+        log.debug("Iterations: {}".format(iterations))
+        log.debug("Times{}".format(times))
         t_end = time()
         self.pb.pt = pt
         self.A = A.reshape((K, K, 2*self.h_dic-1, 2*self.w_dic-1))
         self.B = B.reshape((K, d, self.h_dic, self.w_dic))
         self.pt_dbg = np.copy(pt)
-        log.info('End for {}'.format(self),
-                 'iteration {}, time {:.4}s'.format(self.iteration, self.t))
+        log.info('End for {}, iteration {}, time {:.4}s'
+                 .format(self, self.iteration, self.t))
         log.debug('Total time: {:.4}s'.format(time()-self.t_start))
         log.debug('Total time: {:.4}s'.format(self.runtime))
         self.runtime += self.t_init
@@ -285,7 +285,7 @@ class DICOD2D(_GradientDescent):
         self.comm.Gather(None, [iterations, MPI.INT],
                          root=MPI.ROOT)
         self.iteration = np.sum(iterations)
-        log.debug("Iterations", iterations)
+        log.debug("Iterations {}".format(iterations))
 
         self.comm.Barrier()
         self.gather()
