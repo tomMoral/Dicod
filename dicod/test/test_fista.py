@@ -1,5 +1,4 @@
 import numpy as np
-import pytest
 
 
 from dicod.multivariate_convolutional_coding_problem import\
