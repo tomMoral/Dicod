@@ -103,7 +103,7 @@ def run_one(args_pb, lmbd, optimizer, optimizer_kwargs, fname, file_lock):
 
 
 def scaling_lmbd(T=300, n_jobs=75, n_rep=10, save_dir=None, max_iter=1e8,
-                 t_max=7200, hostfile=None, lgg=False, optimizer="dicod",
+                 timeout=7200, hostfile=None, lgg=False, optimizer="dicod",
                  debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
     for lmbd and store the runtime in csv files if given a save_dir.
@@ -123,7 +123,7 @@ def scaling_lmbd(T=300, n_jobs=75, n_rep=10, save_dir=None, max_iter=1e8,
         in two different ways.
     max_iter: int, optional (default: 5e6)
         maximal number of iteration run by DICOD
-    t_max: int, optional (default: 7200)
+    timeout: int, optional (default: 7200)
         maximal running time for DICOD. The default timeout
         is 2 hours
     hostfile: str, optional (default: None)
@@ -157,7 +157,7 @@ def scaling_lmbd(T=300, n_jobs=75, n_rep=10, save_dir=None, max_iter=1e8,
     d = 7
     noise_level = 1
     optimizer_kwargs = dict(logging=lgg, log_rate='log1.6', max_iter=max_iter,
-                            t_max=t_max, debug=debug, tol=1e-2)
+                            timeout=timeout, debug=debug, tol=1e-2)
 
     # Set the solver arguments
     backend = None

@@ -182,7 +182,7 @@ def test_dicod_2d_corner(exit_on_deadlock, h_pad, w_pad):
 
     dicod = DICOD2D(n_jobs=n_jobs, w_world=w_world, use_seg=1,
                     algorithm=ALGO_GS, debug=5, max_iter=n_jobs*1e7,
-                    t_max=15, hostfile='hostfile')
+                    timeout=15, hostfile='hostfile')
 
     for _ in range(3):
         D = np.random.normal(size=(K, dim, h_dic, w_dic))
@@ -224,7 +224,7 @@ def test_dicod_2d_grid(exit_on_deadlock):
 
     dicod = DICOD2D(n_jobs=n_jobs, w_world=w_world, use_seg=1,
                     algorithm=ALGO_GS, debug=5, max_iter=n_jobs*1e7,
-                    t_max=15, hostfile='hostfile')
+                    timeout=15, hostfile='hostfile')
     for _ in range(3):
         D = np.random.normal(size=(K, dim, h_dic, w_dic))
         D /= np.sqrt((D*D).sum(axis=-1).sum(axis=-1))[:, :, None, None]
@@ -287,7 +287,7 @@ def test_dicod_2d_fullstack(exit_on_deadlock):
 
     dicod = DICOD2D(n_jobs=n_jobs, w_world=w_world, use_seg=5,
                     algorithm=ALGO_GS, debug=5, max_iter=n_jobs*1e5,
-                    t_max=25, tol=5e-6, hostfile='hostfile')
+                    timeout=25, tol=5e-6, hostfile='hostfile')
 
     # Test the problem construciton
     assert np.allclose(pb.reconstruct(z), x)

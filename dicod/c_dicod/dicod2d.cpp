@@ -131,7 +131,7 @@ void DICOD2D::_rcv_task(){
 
 	lmbd = constants[7];					// regularisation parameter
 	tol = constants[8];						// convergence tolerance
-	t_max = constants[9];					// maximum time
+	timeout = constants[9];					// maximum time
 	max_iter = (int) constants[10];			// # iterations maximum
 	debug = ((int) constants[11] > 0);		// debug level
 	logging = ((int) constants[12] == 1);	// activate the logging
@@ -613,7 +613,7 @@ bool DICOD2D::stop(double dz){
 	}
 
 	// print debug message to notify that we reach a timeout or the maximal iteration
-	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
+	if((debug || DEBUG) && seconds >= timeout && world_rank == 0)
 		cout << "DEBUG:jobs - Reach timeout" << endl;
 	if((debug || DEBUG) && iter >= max_iter && world_rank == 0)
 		cout << "DEBUG:jobs - Reach max iteration" << endl;
@@ -653,7 +653,7 @@ bool DICOD2D::stop(double dz){
 	}
 	bool _stop = false;
 	_stop |= (iter >= max_iter);
-	_stop |= (seconds >= t_max);
+	_stop |= (seconds >= timeout);
 	if(_stop){
 		runtime = seconds;
 		if(world_rank != 0){

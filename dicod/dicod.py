@@ -39,7 +39,7 @@ class DICOD(_LassoSolver):
     ------
     tol: float, default: 1e-10
     max_iter: int, default: 1000
-    t_max: int default: 40
+    timeout: int default: 40
 
     """
 
@@ -103,7 +103,7 @@ class DICOD(_LassoSolver):
         # Send the constants of the algorithm
         max_iter = max(1, self.max_iter // self.n_jobs)
         N = np.array([float(d), float(K), float(S), float(T),
-                      self.pb.lmbd, self.tol, float(self.t_max), float(max_iter),
+                      self.pb.lmbd, self.tol, float(self.timeout), float(max_iter),
                       float(self.debug), float(self.logging),
                       float(self.use_seg), float(self.positive),
                       float(self.algorithm), float(self.patience)],

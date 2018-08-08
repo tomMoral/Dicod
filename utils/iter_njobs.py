@@ -10,7 +10,7 @@ from utils.rand_problem import fun_rand_problem
 
 
 def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
-               t_max=7200, hostfile=None, run='all', lgg=False, use_seg=False,
+               timeout=7200, hostfile=None, run='all', lgg=False, use_seg=False,
                graphical_cost=None, algorithm=ALGO_GS, debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
@@ -33,7 +33,7 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
         in two different ways.
     max_iter: int, optional (default: 5e6)
         maximal number of iteration run by DICOD
-    t_max: int, optional (default: 7200)
+    timeout: int, optional (default: 7200)
         maximal running time for DICOD. The default timeout
         is 2 hours
     hostfile: str, optional (default: None)
@@ -61,7 +61,7 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
 
     '''
     common_args = dict(logging=lgg, log_rate='log1.6', max_iter=max_iter,
-                       t_max=t_max, graphical_cost=graphical_cost,
+                       timeout=timeout, graphical_cost=graphical_cost,
                        debug=debug, tol=5e-2, hostfile=hostfile,
                        algorithm=algorithm, patience=1000)
 
