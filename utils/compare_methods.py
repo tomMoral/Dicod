@@ -13,7 +13,7 @@ log = logging.getLogger('dicod')
 
 
 
-def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
+def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, t_max=7200,
                 n_jobs=3, hostfile=None, graphical_cost=None,
                 display=True, debug=0):
     '''Run DICOD algorithm for a certain problem with different value
@@ -29,7 +29,7 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
         This will create a file for each problem size T and save
         the Pb number, the number of core and the runtime computed
         in two different ways.
-    i_max: int, optional (default: 5e6)
+    max_iter: int, optional (default: 5e6)
         maximal number of iteration run by the algorithms
     t_max: int, optional (default: 7200)
         maximal running time for each algorithm. The default timeout
@@ -44,7 +44,7 @@ def compare_met(T=80, K=10, save_dir=None, i_max=5e6, t_max=7200,
     debug: int, optional (default:0)
         The greater it is, the more verbose the algorithm
     '''
-    common_args = dict(logging=True, log_rate='log1.6', i_max=i_max,
+    common_args = dict(logging=True, log_rate='log1.6', max_iter=max_iter,
                        t_max=t_max, graphical_cost=graphical_cost,
                        debug=debug, tol=1e-4)
     S = 200

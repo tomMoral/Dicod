@@ -46,7 +46,7 @@ class DICOD2D
 
 		// Algorithm parameters
 		double lmbd, tol, t_max;
-		int i_max, n_seg, algo, patience;
+		int max_iter, n_seg, algo, patience;
 		bool debug, logging, positive;
 
 		// dimension of the problem

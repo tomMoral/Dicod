@@ -4,7 +4,7 @@ from numpy import linalg as LA
 from numpy.fft import rfft as fft, irfft as ifft
 
 
-from ._gradient_descent import _GradientDescent
+from ._lasso_solver import _LassoSolver
 from .multivariate_convolutional_coding_problem import next_fast_len
 
 
@@ -18,7 +18,7 @@ l2 = lambda x: np.sum(x * x)
 MU_MAX = 1e5
 
 
-class FCSC(_GradientDescent):
+class FCSC(_LassoSolver):
     """Fast Iterative Soft Thresholding Algorithm
 
     Parameters

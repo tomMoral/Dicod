@@ -2,15 +2,20 @@ import logging
 import numpy as np
 
 
-from ._gradient_descent import _GradientDescent
+from ._lasso_solver import _LassoSolver
 
 log = logging.getLogger('dicod')
 
-l1 = lambda x: np.sum(np.abs(x))
-l2 = lambda x: np.sum(x*x)
+
+def l1(x):
+    return np.sum(np.abs(x))
 
 
-class FISTA(_GradientDescent):
+def l2(x):
+    return x.ravel().dot(x.ravel())
+
+
+class FISTA(_LassoSolver):
     """Fast Iterative Soft Thresholding Algorithm
 
     Parameters
@@ -30,10 +35,8 @@ class FISTA(_GradientDescent):
     debug: int, optional (default: 0)
         Set verbosity level
     """
-    def __init__(self, problem, f_theta='fista',
-                 eta=1.2, fixe=False, debug=0, **kwargs):
-        super(FISTA, self).__init__(
-            problem, debug=debug, **kwargs)
+    def __init__(self, f_theta='fista', eta=1.2, fixe=False, **kwargs):
+        super(FISTA, self).__init__(**kwargs)
 
         self.eta = eta
         self.fixe = fixe

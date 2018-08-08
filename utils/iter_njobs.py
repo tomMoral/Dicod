@@ -9,7 +9,7 @@ from dicod.dicod import DICOD, ALGO_GS
 from utils.rand_problem import fun_rand_problem
 
 
-def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, i_max=5e6,
+def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
                t_max=7200, hostfile=None, run='all', lgg=False, use_seg=False,
                graphical_cost=None, algorithm=ALGO_GS, debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
@@ -31,7 +31,7 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, i_max=5e6,
         This will create a file for each problem size T and save
         the Pb number, the number of core and the runtime computed
         in two different ways.
-    i_max: int, optional (default: 5e6)
+    max_iter: int, optional (default: 5e6)
         maximal number of iteration run by DICOD
     t_max: int, optional (default: 7200)
         maximal running time for DICOD. The default timeout
@@ -60,7 +60,7 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, i_max=5e6,
         seed the rng of numpy to obtain fixed set of problems
 
     '''
-    common_args = dict(logging=lgg, log_rate='log1.6', i_max=i_max,
+    common_args = dict(logging=lgg, log_rate='log1.6', max_iter=max_iter,
                        t_max=t_max, graphical_cost=graphical_cost,
                        debug=debug, tol=5e-2, hostfile=hostfile,
                        algorithm=algorithm, patience=1000)

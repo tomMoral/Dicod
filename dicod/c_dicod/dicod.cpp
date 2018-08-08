@@ -94,7 +94,7 @@ void DICOD::receive_task(){
 	lmbd = constants[4];					// Regularization parameter
 	tol = constants[5];						// Convergence tolerance
 	t_max = constants[6];					// Maximum time
-	i_max = (long int) constants[7];		// maximum # of iterations
+	max_iter = (long int) constants[7];		// maximum # of iterations
 	debug = ((int) constants[8] > 0);		// Debug level
 	logging = ((int) constants[9] == 1);	// Activate the logging
 	n_seg = ((int) constants[10]);			// Use a segmented update
@@ -407,7 +407,7 @@ bool DICOD::stop(double dz){
 	chrono::duration<double> time_span = chrono::duration_cast<chrono::duration<double>>(t_end - t_start);
 	double seconds = time_span.count();
 	bool _stop = false;
-	_stop |= (iter >= i_max);
+	_stop |= (iter >= max_iter);
 	_stop |= (seconds >= t_max);
 	if(!go){
 		COMM_WORLD.Barrier();
@@ -418,7 +418,7 @@ bool DICOD::stop(double dz){
 	}
 	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
 		cout << "DEBUG - MPI_worker - Reach timeout" << endl;
-	if((debug || DEBUG) && iter >= i_max && world_rank == 0)
+	if((debug || DEBUG) && iter >= max_iter && world_rank == 0)
 		cout << "DEBUG - MPI_worker - Reach max iteration" << endl;
 	if(fabs(dz) <= tol){
 		// If just enter pause, probe other for paused
@@ -452,7 +452,7 @@ bool DICOD::stop(double dz){
 		COMM_WORLD.Barrier();
 	}
 	if(world_rank == 0 && (debug || DEBUG) &&  (iter % 1000 == 0 || pause)){
-		double progress = max(iter * 100.0 / i_max, seconds * 100.0 / t_max);
+		double progress = max(iter * 100.0 / max_iter, seconds * 100.0 / t_max);
 		cout << "\rDEBUG - MPI_worker - Progress " << setw(2)
 			 << progress << "%   (probe: " << max_probe << ")" << flush;
 

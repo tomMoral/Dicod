@@ -67,7 +67,7 @@ if __name__ == '__main__':
         #     except ValueError:
         #         run += [r]
         iter_njobs(T=args.T, max_jobs=args.njobs, n_rep=args.nrep,
-                   exp_dir=args.exp, i_max=5e8, t_max=args.tmax,
+                   exp_dir=args.exp, max_iter=5e8, t_max=args.tmax,
                    hostfile=args.hostfile, lgg=False, graphical_cost=None,
                    debug=args.d, algorithm=algorithm, seed=422742,
                    run=args.run, use_seg=args.seg)
@@ -75,28 +75,28 @@ if __name__ == '__main__':
     if args.lmbd:
         from utils.scaling_lmbd import scaling_lmbd
         scaling_lmbd(T=args.T, n_jobs=args.njobs, n_rep=args.nrep,
-                     exp_dir=args.exp, i_max=5e9, t_max=args.tmax,
+                     exp_dir=args.exp, max_iter=5e9, t_max=args.tmax,
                      hostfile=args.hostfile, lgg=False, optimizer=args.optim,
                      debug=args.d, seed=422742)
 
     if args.met:
         from utils.compare_methods import compare_met
 
-        compare_met(T=args.T, K=args.K, exp_dir=args.exp, i_max=5e8,
+        compare_met(T=args.T, K=args.K, exp_dir=args.exp, max_iter=5e8,
                     t_max=args.tmax, n_jobs=args.njobs, hostfile=args.hostfile,
                     graphical_cost=graphical_cost, display=args.no_display,
                     debug=args.d)
 
     if args.step:
         from utils.step_detect import step_detect
-        step_detect(exp_dir=args.exp, i_max=5e6, t_max=args.tmax,
+        step_detect(exp_dir=args.exp, max_iter=5e6, t_max=args.tmax,
                     n_jobs=args.njobs, hostfile=args.hostfile,
                     n_epoch=args.nepoch,
                     graphical_cost=graphical_cost, debug=args.d)
 
     if args.rand:
         from utils.dict_learn import dict_learn
-        dict_learn(exp_dir=args.exp, i_max=5e6, t_max=args.tmax,
+        dict_learn(exp_dir=args.exp, max_iter=5e6, t_max=args.tmax,
                    n_jobs=args.njobs, hostfile=args.hostfile,
                    n_epoch=args.nepoch,
                    graphical_cost=graphical_cost, debug=args.d)

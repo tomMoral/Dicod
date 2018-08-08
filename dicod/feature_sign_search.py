@@ -2,12 +2,12 @@ import logging
 import numpy as np
 from numpy.linalg import LinAlgError
 
-from ._gradient_descent import _GradientDescent
+from ._lasso_solver import _LassoSolver
 
 log = logging.getLogger('dicod')
 
 
-class FSS(_GradientDescent):
+class FSS(_LassoSolver):
     """Algorithm solving a sparse coding problem with
     a feature sign search (based on Ng_05_sparse)
 

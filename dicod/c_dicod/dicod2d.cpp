@@ -132,7 +132,7 @@ void DICOD2D::_rcv_task(){
 	lmbd = constants[7];					// regularisation parameter
 	tol = constants[8];						// convergence tolerance
 	t_max = constants[9];					// maximum time
-	i_max = (int) constants[10];			// # iterations maximum
+	max_iter = (int) constants[10];			// # iterations maximum
 	debug = ((int) constants[11] > 0);		// debug level
 	logging = ((int) constants[12] == 1);	// activate the logging
 	n_seg = ((int) constants[13]);		// use a semgneted update
@@ -421,7 +421,7 @@ double DICOD2D::step(){
 		// 		<< dz << endl;
 		// adz = 0;
 		// dz = 0;
-		// iter = i_max;
+		// iter = max_iter;
 	//}
 	prev_i0[current_seg] = i0;
 	up = -1;
@@ -457,8 +457,8 @@ double DICOD2D::step(){
 				<< " - step took " << time_step << "s to finished - " << n_msg << endl;
 	}*/
 
-	if(iter % (i_max/10) == 0 && (debug || DEBUG) && world_rank == 0)
-		cout << "DEBUG:jobs - sparse coding " << iter*100/i_max
+	if(iter % (max_iter/10) == 0 && (debug || DEBUG) && world_rank == 0)
+		cout << "DEBUG:jobs - sparse coding " << iter*100/max_iter
 		<< "\x25" << endl;
 
 	return _return_dz(adz);
@@ -615,7 +615,7 @@ bool DICOD2D::stop(double dz){
 	// print debug message to notify that we reach a timeout or the maximal iteration
 	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
 		cout << "DEBUG:jobs - Reach timeout" << endl;
-	if((debug || DEBUG) && iter >= i_max && world_rank == 0)
+	if((debug || DEBUG) && iter >= max_iter && world_rank == 0)
 		cout << "DEBUG:jobs - Reach max iteration" << endl;
 
 	// if we have reach an optimal solution within the process
@@ -652,7 +652,7 @@ bool DICOD2D::stop(double dz){
 		}
 	}
 	bool _stop = false;
-	_stop |= (iter >= i_max);
+	_stop |= (iter >= max_iter);
 	_stop |= (seconds >= t_max);
 	if(_stop){
 		runtime = seconds;

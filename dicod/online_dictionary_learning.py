@@ -55,7 +55,7 @@ class OnlineDicitonaryLearning(object):
         compt_up = 0
         self.pZ = [None]*len(self.problems)
         for i in range(n_iter):
-            log.progress(levl=10, iteration=i, i_max=n_iter)
+            log.progress(levl=10, iteration=i, max_iter=n_iter)
             i0 = np.random.randint(0, len(self.problems),
                                    self.batch_size)
             self.Z = solver.solve(self.problems[i0])

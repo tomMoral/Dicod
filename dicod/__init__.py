@@ -3,12 +3,12 @@ import numpy as np
 
 class _SparseCoding(object):
     """Metaclass for sparse coding"""
-    def __init__(self, D, alpha=0.1, i_max=100,
+    def __init__(self, D, alpha=0.1, max_iter=100,
                  conv=False, **kwargs):
         self.D = D  # Dictionaries
         self.K, self.s = D.shape
         self.alpha = alpha  # Sparsity importance
-        self.i_max = i_max
+        self.max_iter = max_iter
         self.conv = conv
         self.z = None
 
