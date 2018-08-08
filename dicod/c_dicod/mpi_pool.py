@@ -101,13 +101,10 @@ class MPI_Pool(object):
         comm2.Disconnect()
 
     def mng_bcast(self, msg, comm=None):
-        print("mng_bcast: ", msg)
         if comm is None:
             comm = self.comm
         for i in range(comm.remote_size):
-            print("Sending to {} on {}".format(i, comm))
             comm.Send([msg, MPI.INT], i, TAG_MNG_MSG)
-            print("Done to {}".format(i))
 
     def terminate(self):
         msg = np.array([MNG_STOP] * 4).astype('i')
