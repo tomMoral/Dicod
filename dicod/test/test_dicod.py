@@ -33,7 +33,7 @@ def _test_AB(dicod, pb):
 
 @pytest.yield_fixture
 def exit_on_deadlock():
-    dump_traceback_later(timeout=30, exit=True)
+    dump_traceback_later(timeout=120, exit=True)
     yield
     cancel_dump_traceback_later()
 
@@ -46,7 +46,6 @@ slow = pytest.mark.skipif(
 ids = ["GaussS, n_jobs=1, seg=1",
        "GaussS, n_jobs=2, seg=1",
        "GaussS, n_jobs=3, seg=1",
-       "GaussS, n_jobs=4, seg=1",
        "GaussS, n_jobs=2, seg=2",
        "GaussS, n_jobs=2, seg=4",
        "GaussS, n_jobs=2, seg=8",
@@ -61,7 +60,6 @@ param_array = [
     (ALGO_GS, 1, 1),
     (ALGO_GS, 2, 1),
     (ALGO_GS, 3, 1),
-    (ALGO_GS, 4, 1),
     (ALGO_GS, 2, 2),
     (ALGO_GS, 2, 4),
     (ALGO_GS, 2, 8),
