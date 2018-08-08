@@ -31,23 +31,24 @@ def _test_AB(dicod, pb):
             np.sum(dA*pb.D), np.sum(rec*rec)))
 
 
-@pytest.yield_fixture
-def exit_on_deadlock():
-    dump_traceback_later(timeout=120, exit=True)
-    yield
-    cancel_dump_traceback_later()
-
-
 slow = pytest.mark.skipif(
     not pytest.config.getoption("--runslow"),
     reason="need --runslow option to run"
 )
+MAX_WORKERS = pytest.config.getoption("--max_workers")
+TIMEOUT = pytest.config.getoption("--deadlock_timeout")
 
-max_workers = pytest.config.getoption("--max_workers")
+
+@pytest.yield_fixture
+def exit_on_deadlock():
+    dump_traceback_later(timeout=TIMEOUT, exit=True)
+    yield
+    cancel_dump_traceback_later()
+
 
 param_array, ids = [], []
 for algo in [ALGO_GS, ALGO_RANDOM]:
-    for n_workers in range(1, max_workers + 1):
+    for n_workers in range(1, MAX_WORKERS + 1):
         for n_seg in [1, 2, 4, 8]:
             if n_workers > 2 and n_seg > 1:
                 break
@@ -75,7 +76,7 @@ def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
                   algorithm=algo, debug=5, patience=1000, hostfile='hostfile')
     dicod.fit(pb)
 
-    pt = pb.pt*(abs(pb.pt) > pb.lmbd)
+    pt = pb.pt*(abs(pb.pt) > 50 * pb.lmbd)
 
     # Assert we recover the right support
     print(pb.pt.reshape(1, -1).nonzero()[1], '\n',
@@ -121,7 +122,7 @@ def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
 
 
 @pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
-def test_dicod_2d_ligne(algo, n_jobs, n_seg):
+def test_dicod_2d_ligne(exit_on_deadlock, algo, n_jobs, n_seg):
     K = 3
     D = np.random.normal(size=(K, 2, 1, 5))
     D /= np.sqrt((D*D).sum(axis=-1))[:, :, :, None]
@@ -163,7 +164,7 @@ param_corner = [
 
 @slow
 @pytest.mark.parametrize("h_pad, w_pad", param_corner)
-def test_dicod_2d_corner(h_pad, w_pad):
+def test_dicod_2d_corner(exit_on_deadlock, h_pad, w_pad):
     dim = 3
     K = 3
     h_dic = 5
@@ -204,7 +205,7 @@ def test_dicod_2d_corner(h_pad, w_pad):
     assert abs(pb.cost(pb.pt) - dicod.cost)/dicod.cost < 1e-6
 
 
-def test_dicod_2d_grid():
+def test_dicod_2d_grid(exit_on_deadlock):
     dim = 3
     K = 3
     h_dic = 5
@@ -256,7 +257,7 @@ def test_dicod_2d_grid():
 
 
 @slow
-def test_dicod_2d_fullstack():
+def test_dicod_2d_fullstack(exit_on_deadlock):
     dim = 3
     K = 10
     h_dic = 10
