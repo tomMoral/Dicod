@@ -29,7 +29,7 @@ def get_reusable_pool(n_jobs=None, hostfile=None):
         _local._pool = _pool = MPI_Pool(n_jobs=n_jobs, hostfile=hostfile)
     elif _pool._state != RUN or n_jobs != _pool.n_jobs:
         if DEBUG:
-            print("DEBUG   - Create a new pool as the previous one"
+            print("DEBUG - Create a new pool as the previous one"
                   " was in state {}".format(_pool._state))
         _pool.terminate()
         _local._pool = None

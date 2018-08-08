@@ -121,6 +121,7 @@ def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
     # _test_AB(dicod, pb)
 
 
+@slow
 @pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
 def test_dicod_2d_ligne(exit_on_deadlock, algo, n_jobs, n_seg):
     K = 3
@@ -205,6 +206,7 @@ def test_dicod_2d_corner(exit_on_deadlock, h_pad, w_pad):
     assert abs(pb.cost(pb.pt) - dicod.cost)/dicod.cost < 1e-6
 
 
+@slow
 def test_dicod_2d_grid(exit_on_deadlock):
     dim = 3
     K = 3

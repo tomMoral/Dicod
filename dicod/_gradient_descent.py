@@ -175,7 +175,7 @@ class _GradientDescent(object):
             return False
 
     def start(self):
-        log.info(self.__repr__(), 'Start')
+        log.info('{} - Start'.format(self))
         self.reset()
         self._init_algo()
         if self.logging:
@@ -190,8 +190,8 @@ class _GradientDescent(object):
             log.log_obj(name='cost'+str(self.id), obj=self.pb.pt,
                         iteration=self.iteration, fun=self.pb.cost,
                         graph_cost=self.graph_cost, time=self.t)
-        log.debug(self.__repr__(), 'End - iteration {}, time {:.4}s'
-                  ''.format(self.iteration, self.t))
+        log.debug('{} - End - iteration {}, time {:.4}s'
+                  .format(self, self.iteration, self.t))
         log.debug('Total time: {:.4}s'.format(self.runtime))
 
     def reset(self):

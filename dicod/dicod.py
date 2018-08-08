@@ -55,7 +55,6 @@ class DICOD(_GradientDescent):
         self.patience = 1000
         if self.name == '_GD' + str(self.id):
             self.name = 'MPI_DCP' + str(self.n_jobs) + '_' + str(self.id)
-        print('Logger', log.level)
 
     def fit(self, pb, DD=None):
         self.pb = pb
