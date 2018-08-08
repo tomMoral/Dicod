@@ -134,7 +134,7 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         if pt is None:
             pt = self.pt
         z = pt
-        z_slice = [slice(0, d) for d in z.shape]
+        z_slice = tuple([slice(0, d) for d in z.shape])
         z_fft = fft(z, n=self.fft_shape)
         Gh = np.sum(self.DtD_fft * z_fft[None], axis=1)
         Gh -= self.DtX_fft
