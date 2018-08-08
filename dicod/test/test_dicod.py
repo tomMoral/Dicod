@@ -43,33 +43,19 @@ slow = pytest.mark.skipif(
     reason="need --runslow option to run"
 )
 
-ids = ["GaussS, n_jobs=1, seg=1",
-       "GaussS, n_jobs=2, seg=1",
-       "GaussS, n_jobs=3, seg=1",
-       "GaussS, n_jobs=2, seg=2",
-       "GaussS, n_jobs=2, seg=4",
-       "GaussS, n_jobs=2, seg=8",
-       "Random, n_jobs=1, seg=1",
-       "Random, n_jobs=2, seg=1",
-       "Random, n_jobs=3, seg=1",
-       "Random, n_jobs=2, seg=2",
-       "Random, n_jobs=2, seg=4",
-       "Random, n_jobs=2, seg=8"
-       ]
-param_array = [
-    (ALGO_GS, 1, 1),
-    (ALGO_GS, 2, 1),
-    (ALGO_GS, 3, 1),
-    (ALGO_GS, 2, 2),
-    (ALGO_GS, 2, 4),
-    (ALGO_GS, 2, 8),
-    (ALGO_RANDOM, 1, 1),
-    (ALGO_RANDOM, 2, 1),
-    (ALGO_RANDOM, 3, 1),
-    (ALGO_RANDOM, 2, 2),
-    (ALGO_RANDOM, 2, 4),
-    (ALGO_RANDOM, 2, 8),
-]
+max_workers = pytest.config.getoption("--max_workers")
+
+param_array, ids = [], []
+for algo in [ALGO_GS, ALGO_RANDOM]:
+    for n_workers in range(1, max_workers + 1):
+        for n_seg in [1, 2, 4, 8]:
+            if n_workers > 2 and n_seg > 1:
+                break
+            param_array += [(algo, n_workers, n_seg)]
+            ids += ["{}, n_workers={}, n_seg={}".format(
+                "GaussS" if algo == ALGO_GS else "Random",
+                n_workers, n_seg
+            )]
 
 
 @pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
