@@ -62,7 +62,8 @@ for algo in [ALGO_GS, ALGO_RANDOM]:
 @pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
 def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
     K = 3
-    D = np.random.normal(size=(K, 2, 5))
+    rng = np.random.RandomState(42)
+    D = rng.normal(size=(K, 2, 5))
     D /= np.sqrt((D*D).sum(axis=-1))[:, :, None]
     z = np.zeros((K, 100))
     z[0, [0, 12, 23, 30, 42, 50, 65, 85, 95]] = 1
@@ -92,7 +93,8 @@ def test_dicod_simple(exit_on_deadlock, algo, n_jobs, n_seg):
 @pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
 def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
     K = 3
-    D = np.random.normal(size=(K, 2, 5))
+    rng = np.random.RandomState(42)
+    D = rng.normal(size=(K, 2, 5))
     D /= np.sqrt((D*D).sum(axis=-1))[:, :, None]
     z = np.zeros((K, 100))
     z[0, [min(99, 100 // n_jobs + 1)]] = 1
@@ -125,7 +127,9 @@ def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
 @pytest.mark.parametrize("algo,n_jobs,n_seg", param_array, ids=ids)
 def test_dicod_2d_ligne(exit_on_deadlock, algo, n_jobs, n_seg):
     K = 3
-    D = np.random.normal(size=(K, 2, 1, 5))
+
+    rng = np.random.RandomState(42)
+    D = rng.normal(size=(K, 2, 1, 5))
     D /= np.sqrt((D*D).sum(axis=-1))[:, :, :, None]
     z = np.zeros((K, 1, 100))
     z[0, 0, [0, 12, 23, 30, 42, 50, 65, 85, 95]] = 1
