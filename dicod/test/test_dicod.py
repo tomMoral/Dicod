@@ -103,8 +103,8 @@ def test_dicod_interf(exit_on_deadlock, algo, n_jobs, n_seg):
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, max_iter=1e6, hostfile='hostfile',
-                  algorithm=algo, debug=5, patience=1000, tol=1e-15)
+    dicod = DICOD(n_jobs=n_jobs, use_seg=n_seg, max_iter=1e6, tol=1e-15,
+                  hostfile='hostfile', algorithm=algo, debug=5, patience=1000)
     dicod.fit(pb)
 
     pt = pb.pt*(abs(pb.pt) > pb.lmbd)

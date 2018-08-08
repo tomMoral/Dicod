@@ -4,6 +4,7 @@ from numpy import linalg as LA
 from numpy.fft import rfft as fft, irfft as ifft
 
 
+from .utils import l1, l2
 from ._lasso_solver import _LassoSolver
 from .multivariate_convolutional_coding_problem import next_fast_len
 
@@ -11,39 +12,23 @@ from .multivariate_convolutional_coding_problem import next_fast_len
 log = logging.getLogger('dicod')
 
 
-l1 = lambda x: np.sum(np.abs(x))
-l2 = lambda x: np.sum(x * x)
-
-
 MU_MAX = 1e5
 
 
 class FCSC(_LassoSolver):
-    """Fast Iterative Soft Thresholding Algorithm
+    """Fast Convoltional Sparse Coding [Bristow2013]
+
+    Method based on ADMM.
 
     Parameters
     ----------
-    problem: _Problem
-        problem we aim to solve
-    f_theta: str or float, optional (default: 'fista')
-        update of the momentum coefficient.
-        If f_theta is a float, use this as a fix rate
-        if {'k2', 'fista'} define a theta_k and the coef
-        is (theta_k-1)/theta_(k+1).
-    eta: float > 1, optional (default: 1.1)
-        Line search parameter. Greater mean quicker
-        convergence but more instable.
-    fix: bool, optional (default: false)
-        If set to True, use a fix update step size.
-    debug: int, optional (default: 0)
-        Set verbosity level
+    tau: float > 1, optional (default: 1.05)
+        multiplier for the ADMM method.
     """
-    def __init__(self, problem, tau=1.05, debug=0, tol2=1e-16, **kwargs):
-        super(FCSC, self).__init__(
-            problem, debug=debug, **kwargs)
+    def __init__(self, tau=1.05, **kwargs):
+        super(FCSC, self).__init__(**kwargs)
 
         self.tau = tau
-        self.tol = tol2
 
         self.name = 'FCSC_' + str(self.id)
 

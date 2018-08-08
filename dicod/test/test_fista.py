@@ -20,8 +20,8 @@ def test_fista_simple():
     pb = MultivariateConvolutionalCodingProblem(
             D, x, lmbd=0.002)
 
-    dicod = FISTA(max_iter=1e5, debug=5)
-    dicod.fit(pb)
+    fista = FISTA(fixe=True, max_iter=1e5, debug=5, logging=True)
+    fista.fit(pb)
 
     pt = pb.pt*(abs(pb.pt) > pb.lmbd)
 
@@ -30,4 +30,4 @@ def test_fista_simple():
           z.reshape(1, -1).nonzero()[1])
     assert (np.all(pt.reshape(1, -1).nonzero()[1] ==
                    z.reshape(1, -1).nonzero()[1])), (
-        "Cost pt: ", dicod.cost, "Cost z: ", pb.cost(z))
+        "Cost pt: ", fista.cost, "Cost z: ", pb.cost(z))

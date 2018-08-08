@@ -1,4 +1,4 @@
-
+import numpy as np
 from collections import namedtuple
 
 
@@ -32,9 +32,9 @@ def get_log_rate(lr):
     return log_rate
 
 
-def record(it, t, cost, cost_curve, log_rate):
-    cost_curve.iterations.append(it + 1)
-    cost_curve.times.append(t)
-    cost_curve.pobj.append(cost)
-    next_log = log_rate(it + 1)
-    return cost_curve, next_log
+def l1(x):
+    return np.sum(np.abs(x))
+
+
+def l2(x):
+    return x.ravel().dot(x.ravel())

@@ -41,16 +41,6 @@ class MultivariateConvolutionalCodingProblem(_Problem):
 
         self._compute_constant()
 
-    def compute_DD(self, DD=None):
-        self.DD = DD
-        if self.DD is None:
-            self.DD = np.mean([[[fftconvolve(dk, dk1)
-                                 for dk, dk1 in zip(d, d1)]
-                                for d1 in self.D]
-                               for d in self.D[:, :, ::-1]], axis=2)
-
-        return self.DD
-
     def get_lmbd_max(self):
         return np.max([
             np.sum([np.correlate(D_kp, X_ip, mode='valid')
@@ -76,23 +66,31 @@ class MultivariateConvolutionalCodingProblem(_Problem):
                         ).mean(axis=2, keepdims=False)
         self.DtX_fft = (D_fft.conj() * X_fft).mean(axis=1, keepdims=False)
 
-        # Lipchitz constant
-        b_hat = np.random.rand(*self.pt.shape)
-        mu_hat = np.nan
-        for _ in range(100):
-            norm = np.linalg.norm(b_hat)
-            b_hat /= norm
-            fb_hat = self.grad(b_hat)
-            mu_old = mu_hat
-            mu_hat = np.sum(b_hat * fb_hat)
-            b_hat = fb_hat
-            if abs(mu_hat - mu_old) / mu_old < 1e-15:
-                break
-        self.L = mu_hat
-        # self.L = np.linalg.norm(self.DtD_fft, axis=(0, 1), ord=2).max()
-
         # Store extra dimensions
         self.T = p * np.prod(X_shape)
+
+        # Compute DD
+        self.DD = np.mean([[[fftconvolve(dk, dk1)
+                             for dk, dk1 in zip(d, d1)]
+                            for d1 in self.D]
+                           for d in self.D[:, :, ::-1]], axis=2)
+
+        # Lipchitz constant
+        # b_hat = np.random.rand(*self.pt.shape)
+        # mu_hat = np.nan
+        # for _ in range(100):
+        #     norm = np.linalg.norm(b_hat)
+        #     b_hat /= norm
+        #     fb_hat = self.grad(b_hat)
+        #     mu_old = mu_hat
+        #     mu_hat = np.sum(b_hat * fb_hat)
+        #     b_hat = fb_hat
+        #     if abs(mu_hat - mu_old) / mu_old < 1e-15:
+        #         break
+        # self.L = mu_hat
+        self.L = np.linalg.norm(self.DD, axis=(0, 1), ord=2).sum()
+        # print(mu_hat, self.L)
+        # np.linalg.norm(self.DtD_fft, axis=(0, 1), ord=2).sum()
 
     def update_D(self, dD, D=None):
         if D is None:

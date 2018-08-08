@@ -6,24 +6,17 @@ from ._lasso_solver import _LassoSolver
 log = logging.getLogger('dicod')
 
 
-class CoordDescent(_LassoSolver):
-    '''Convolutional Sparse coding by coordinate descent
-    '''
-    def __init__(self, pb, debug=0, **kwargs):
-        '''Coordinate descent algorithm
+class CoordinateDescent(_LassoSolver):
+    '''Convolutional Coordinate Descent Algorithm [Kavukcuoglu2010]
 
-        Parameters
-        ----------
-        pb: _Problem
-            variable and function holder for the Problem
-            to solve
-        debug: int, optional (default: 0)
-            Verbosity level, set to 0 for no output
-        '''
-        super(CoordDescent, self).__init__(
-            pb, debug=debug, **kwargs)
-        if 'name' not in kwargs.keys():
-            self.name = 'CD_' + str(self.id)
+    Parameters
+    ----------
+    pb: _Problem
+        variable and function holder for the Problem
+        to solve
+    debug: int, optional (default: 0)
+        Verbosity level, set to 0 for no output
+    '''
 
     def _init_algo(self):
         '''Precompute some quantities that are used across iterations

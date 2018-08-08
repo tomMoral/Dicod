@@ -2,17 +2,10 @@ import logging
 import numpy as np
 
 
+from .utils import l1, l2
 from ._lasso_solver import _LassoSolver
 
 log = logging.getLogger('dicod')
-
-
-def l1(x):
-    return np.sum(np.abs(x))
-
-
-def l2(x):
-    return x.ravel().dot(x.ravel())
 
 
 class FISTA(_LassoSolver):

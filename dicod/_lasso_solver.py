@@ -1,70 +1,56 @@
 import logging
 import numpy as np
-from math import sqrt
 from time import time
 
-from .utils import get_log_rate
+from .utils import CostCurve, get_log_rate
 
 log = logging.getLogger('dicod')
 
 
 class _LassoSolver(object):
-    """Class to hold gradient descent properties"""
+    '''Generic functionalities for Lasso solvers
+
+    Parameters
+    ----------
+    max_iter: int (default: 1e6)
+        maximal number of iteration for the considered method.
+    timeout : float (default: 40)
+        stop the computations after this number of seconds.
+    stop : str (default: 'dz')
+        stopping criterion. Value should be one of {'none', 'dz'}.
+            - 'none': stop only with timeout and max_iter.
+            - 'dz': stop when the update value dz if less than tol.
+    tol : float (default: 1e-10)
+        tolerance level for the stopping criterion.
+    logging : boolean (default: False)
+        If set to True, compute and store the cost_curve.
+    log_rate : numeric or str (default: 'log1.6')
+        scheduler to log the cost during the different iterations.
+    name : str (default: None)
+        name of the solver.
+    debug : int,
+        verbosity of the logger.
+    '''
 
     id_solver = 0
 
-    def __init__(self, stop='', tol=1e-10,
-                 log_rate='log1.6', max_iter=1e6, timeout=40,
-                 logging=False, name=None, debug=0):
-        '''Generic functionalities for Lasso solvers
+    def __init__(self, max_iter=1e6, timeout=40, stop='dz', tol=1e-10,
+                 logging=False, log_rate='log1.6', name=None, debug=0):
+        log.setLevel(max(3 - debug, 1) * 10)
 
-        Parameters
-        ----------
-        log_rate : numeric or str (default: 'log1.6')
-            scheduler to log the cost during the different iterations.
-        max_iter: int (default: 1e6)
-            maximal number of iteration for the considered method.
-        timeout : float (default: 40)
-            stop the computations after this number of seconds.
-        logging : boolean (default: False)
-            If set to True, compute and store the cost_curve.
-        name : str (default: None)
-            name of the solver.
-        '''
-        log.setLevel(max(3-debug, 1)*10)
-        debug = max(debug-1, 0)
+        # Logging system
+        self.logging = logging
+        self.log_rate = get_log_rate(log_rate)
 
+        # Stopping criterions
+        self.tol = tol
+        self.stop = stop
+        self.timeout = timeout
+        self.max_iter = max_iter
+
+        # Name for debugging
         self.id = _LassoSolver.id_solver
         _LassoSolver.id_solver += 1
-
-        self.stop = stop
-        self.tol = tol
-
-        # Logging system
-        self.logging = logging
-        self.log_rate = get_log_rate(log_rate)
-        self.max_iter = max_iter
-        self.timeout = timeout
-
-        self.name = name if name else 'Solver' + str(self.id)
-
-        self.reset()
-
-    def set_param(self, stop='', tol=1e-10,
-                  log_rate='log1.6', max_iter=1000, timeout=40,
-                  logging=False, name=None, debug=0):
-        if debug > 0:
-            log.set_level(10)
-
-        self.stop = stop
-        self.tol = tol
-
-        # Logging system
-        self.logging = logging
-        self.log_rate = get_log_rate(log_rate)
-        self.max_iter = max_iter
-        self.timeout = timeout
-
         self.name = name if name else 'Solver' + str(self.id)
 
     def solve(self, problem, **kwargs):
@@ -89,16 +75,16 @@ class _LassoSolver(object):
         '''
         if self.finished:
             return True
-        if self.iteration == 0:
+        if self.it == 0:
             self.start()
-        self.iteration += 1
+        self.it += 1
+
+        # Perform the computation for the iteration
+        t_start_it = time()
         dz = self.p_update()
-        self.t = time() - self.t_start
-        if self.iteration >= self.next_log and self.logging:
-            log.log_obj(name='cost' + str(self.id), obj=np.copy(self.pb.pt),
-                        iteration=self.iteration, fun=self.pb.cost,
-                        time=self.t, levl=50)
-            self.next_log = self.log_rate(self.iteration)
+        self.time += time() - t_start_it
+        if self.logging and self.it >= self.next_log:
+            self.record(self.it, self.time, self.pb.cost())
         stop = self._stop(dz)
         if stop:
             self.end()
@@ -109,29 +95,14 @@ class _LassoSolver(object):
         '''
         grad = self.pb.grad(self.pb.pt)
         self.p_grad = grad
-        lr = self._get_lr()
-        self.pb -= lr*grad
-        return lr*np.sum(grad)
-
-    def _get_lr(self):
-        '''Auxillary funciton, return the learning rate
-        '''
-        lr = self.alpha
-        if self.decreasing_rate == 'sqrt':
-            lr /= sqrt(self.iteration)
-        elif self.decreasing_rate == 'linear':
-            lr /= self.iteration
-        elif self.decreasing_rate == 'k2':
-            lr *= 2/(self.iteration+2)
-        elif hasattr(self.decreasing_rate, '__call__'):
-            lr *= self.decreasing_rate(self.iteration)
-        return lr
+        self.pb -= self.alpha * grad
+        return np.sum(abs(grad))
 
     def _stop(self, dz):
         '''Implement stopping criterion
         '''
 
-        if self.iteration >= self.max_iter or self.t >= self.timeout:
+        if self.it >= self.max_iter or self.time >= self.timeout:
             self.finished = True
             log.info("{} - Stop - Reach timeout or maxiter"
                      "".format(self.__repr__()))
@@ -141,7 +112,7 @@ class _LassoSolver(object):
             return False
 
         # If |x_n-x_n-1| < tol, stop
-        if dz < self.tol:
+        if self.stop == 'dz' and dz < self.tol:
             self.finished = True
             log.info('{} - Stop - No advance X'.format(self.__repr__()))
             return self.finished
@@ -155,33 +126,39 @@ class _LassoSolver(object):
     def start(self):
         log.info('{} - Start'.format(self))
         self.reset()
+        t_start_init = time()
         self._init_algo()
+        self.t_init = time() - t_start_init
+        self.time += self.t_init
         if self.logging:
-            log.log_obj(name='cost'+str(self.id), obj=np.copy(self.pb.pt),
-                        iteration=0.7, fun=self.pb.cost,
-                        time=time()-self.t_start)
-        self.next_log = self.log_rate(self.iteration)
+            self.record(self.it, self.time, self.pb.cost())
 
     def end(self):
         self.runtime = time()-self.t_start
+        self.cost = self.pb.cost()
         if self.logging:
-            log.log_obj(name='cost'+str(self.id), obj=self.pb.pt,
-                        iteration=self.iteration, fun=self.pb.cost,
-                        time=self.t)
+            self.record(self.it, self.time, self.cost)
         log.debug('{} - End - iteration {}, time {:.4}s'
-                  .format(self, self.iteration, self.t))
+                  .format(self, self.it, self.time))
         log.debug('Total time: {:.4}s'.format(self.runtime))
+
+    def record(self, it, time, cost):
+        self.cost_curve.iterations.append(it + 1)
+        self.cost_curve.times.append(time)
+        self.cost_curve.pobj.append(cost)
+        self.next_log = self.log_rate(it + 1)
 
     def reset(self):
         # initiate loop variables
+        self.it = 0
+        self.time = 0
         self.finished = False
-        self.iteration = 0
         self.t_start = time()
-        self.t = 0
+        self.cost_curve = CostCurve([], [], [])
 
     def fit(self, pb):
-        self.pb = pb
         self.reset()
+        self.pb = pb
         stop = False
         while not stop:
             stop = self.update()

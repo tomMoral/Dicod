@@ -7,7 +7,6 @@ from mpi4py import MPI
 
 from ._lasso_solver import _LassoSolver
 from .c_dicod.mpi_pool import get_reusable_pool
-from .utils import CostCurve, record
 
 
 log = logging.getLogger('dicod')
@@ -46,7 +45,7 @@ class DICOD(_LassoSolver):
     def __init__(self, n_jobs=1, use_seg=1, hostfile=None,
                  logging=False, debug=0, positive=False,
                  algorithm=ALGO_GS, patience=1000, **kwargs):
-        super(DICOD, self).__init__(None, debug=debug, **kwargs)
+        super(DICOD, self).__init__(debug=debug, **kwargs)
         self.debug = debug
         self.n_jobs = n_jobs
         self.hostfile = hostfile
@@ -58,13 +57,14 @@ class DICOD(_LassoSolver):
         if self.name == '_GD' + str(self.id):
             self.name = 'MPI_DCP' + str(self.n_jobs) + '_' + str(self.id)
 
-    def fit(self, pb, DD=None):
+    def fit(self, pb):
+        self.reset()
         self.pb = pb
-        DD = self._init_pool(DD=DD)
+        self._init_pool()
         self.end()
         return self.pb.DD
 
-    def _init_pool(self, DD=None):
+    def _init_pool(self):
         '''Launch n_jobs process to compute the convolutional
         coding solution with MPI process
         '''
@@ -80,9 +80,9 @@ class DICOD(_LassoSolver):
         log.debug('Created pool of worker in {:.4}s'.format(time() - t_start))
 
         # Send the job to process
-        self.send_task(DD)
+        self.send_task()
 
-    def send_task(self, DD=None):
+    def send_task(self):
         self.K, self.d, self.S = self.pb.D.shape
         self.t_start = time()
         pb = self.pb
@@ -91,7 +91,7 @@ class DICOD(_LassoSolver):
         L = T - S + 1
 
         # Share constants
-        pb.compute_DD(DD=DD)
+        assert self.pb.DD is not None
         alpha_k = np.sum(np.mean(pb.D * pb.D, axis=1), axis=1)
         alpha_k += (alpha_k == 0)
         self.t_init = time() - self.t_start
@@ -103,8 +103,8 @@ class DICOD(_LassoSolver):
         # Send the constants of the algorithm
         max_iter = max(1, self.max_iter // self.n_jobs)
         N = np.array([float(d), float(K), float(S), float(T),
-                      self.pb.lmbd, self.tol, float(self.timeout), float(max_iter),
-                      float(self.debug), float(self.logging),
+                      self.pb.lmbd, self.tol, float(self.timeout),
+                      float(max_iter), float(self.debug), float(self.logging),
                       float(self.use_seg), float(self.positive),
                       float(self.algorithm), float(self.patience)],
                      'd')
@@ -171,7 +171,6 @@ class DICOD(_LassoSolver):
         log.debug("Iterations {}".format(iterations))
         log.debug("Times {}".format(times))
         log.debug("Cost {}".format(cost))
-        t_end = time()
         self.pb.pt = pt
         self.pt_dbg = np.copy(pt)
         log.info('End for {} : iteration {}, time {:.4}s'
@@ -181,13 +180,13 @@ class DICOD(_LassoSolver):
         self.runtime += self.t_init
 
         if self.logging:
-            self._log(iterations, t_end)
+            self._log(iterations)
 
         self.comm.Barrier()
         log.info("Conv sparse coding end in {:.4}s for {} iterations"
                  .format(self.runtime, self.iteration))
 
-    def _log(self, iterations, t_end):
+    def _log(self, iterations):
         self.comm.Barrier()
         pb, L = self.pb, self.L
         updates, updates_t, updates_skip = [], [], []
@@ -200,26 +199,19 @@ class DICOD(_LassoSolver):
             updates_skip += [_log[4 * i + 3] for i in range(n_iter)]
 
         i0 = np.argsort(updates_t)
-        next_log = 1
+        self.next_log = 1
         pb.reset()
         log.debug('Start logging cost')
         t = self.t_init
         it = 0
-        cost_curve = CostCurve([], [], [])
         for i in i0:
-            if it + 1 >= next_log:
-                cost_curve, next_log = record(
-                    it, t, pb.cost(pb.pt), cost_curve, self.log_rate
-                )
+            if it + 1 >= self.next_log:
+                self.record(it, t, pb.cost(pb.pt))
             j, du = updates[i]
             t = updates_t[i] + self.t_init
             pb.pt[j // L, j % L] += du
             it += 1 + updates_skip[i]
-        cost_curve, _ = record(
-            it, t, pb.cost(pb.pt), cost_curve, self.log_rate
-        )
         self.log_update = (updates_t, updates)
-        self.cost_curve = cost_curve
         log.debug('End logging cost')
 
     def gather_AB(self):
