@@ -57,7 +57,6 @@ class DICOD2D(_GradientDescent):
         self.patience = 1000
         if self.name == '_GD'+str(self.id):
             self.name = 'MPI_DCP' + str(self.n_jobs) + '_' + str(self.id)
-        print('Logger', log.level)
 
         self.w_world = w_world
         self.h_world = self.n_jobs // self.w_world

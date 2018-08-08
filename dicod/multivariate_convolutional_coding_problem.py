@@ -80,7 +80,6 @@ class MultivariateConvolutionalCodingProblem(_Problem):
         b_hat = np.random.rand(*self.pt.shape)
         mu_hat = np.nan
         for _ in range(100):
-            print('*', end='', flush=True)
             norm = np.linalg.norm(b_hat)
             b_hat /= norm
             fb_hat = self.grad(b_hat)
