@@ -7,7 +7,7 @@ CostCurve = namedtuple('CostCurve', ['iterations', 'times', 'pobj'])
 
 def get_log_rate(lr):
     """Return a function which define the next iteration to log.
-    
+
     Parameter
     ---------
     lr : string or numeric

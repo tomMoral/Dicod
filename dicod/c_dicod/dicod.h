@@ -56,7 +56,7 @@ class DICOD
 		double *sig, *beta, *pt; // Signal, beta
 		double *alpha_k, *DD, *D;
 		bool *end_neigh, first_probe;
-		double lmbd, tol, t_max;
+		double lmbd, tol, timeout;
 		long int iter, max_iter;
 		int L_proc, L_proc_S, proc_off;
 		int T, dim, S, K, L;

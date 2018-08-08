@@ -15,7 +15,7 @@ class _LassoSolver(object):
 
     def __init__(self, stop='', tol=1e-10, graphical_cost=None,
                  name=None, debug=0, logging=False,
-                 log_rate='log1.6', max_iter=1e6, t_max=40):
+                 log_rate='log1.6', max_iter=1e6, timeout=40):
         '''Generic functionalities for Lasso solvers
 
         Parameters
@@ -38,7 +38,7 @@ class _LassoSolver(object):
         self.logging = logging
         self.log_rate = get_log_rate(log_rate)
         self.max_iter = max_iter
-        self.t_max = t_max
+        self.timeout = timeout
 
         self.name = name if name is not None else '_GD' + str(self.id)
         self.graph_cost = None
@@ -47,7 +47,7 @@ class _LassoSolver(object):
 
     def set_param(self, stop='', tol=1e-10, graphical_cost=None,
                   name=None, debug=0, logging=False,
-                  log_rate='log1.6', max_iter=1000, t_max=40):
+                  log_rate='log1.6', max_iter=1000, timeout=40):
         if debug > 0:
             log.set_level(10)
 
@@ -58,7 +58,7 @@ class _LassoSolver(object):
         self.logging = logging
         self.log_rate = get_log_rate(log_rate)
         self.max_iter = max_iter
-        self.t_max = t_max
+        self.timeout = timeout
 
         self.name = name if name is not None else '_GD' + str(self.id)
         self.graph_cost = None
@@ -130,7 +130,7 @@ class _LassoSolver(object):
         '''Implement stopping criterion
         '''
 
-        if self.iteration >= self.max_iter or self.t >= self.t_max:
+        if self.iteration >= self.max_iter or self.t >= self.timeout:
             self.finished = True
             log.info("{} - Stop - Reach timeout or maxiter"
                      "".format(self.__repr__()))

@@ -93,7 +93,7 @@ void DICOD::receive_task(){
 	T = (int) constants[3];					// Size of the signal
 	lmbd = constants[4];					// Regularization parameter
 	tol = constants[5];						// Convergence tolerance
-	t_max = constants[6];					// Maximum time
+	timeout = constants[6];					// Maximum time
 	max_iter = (long int) constants[7];		// maximum # of iterations
 	debug = ((int) constants[8] > 0);		// Debug level
 	logging = ((int) constants[9] == 1);	// Activate the logging
@@ -408,7 +408,7 @@ bool DICOD::stop(double dz){
 	double seconds = time_span.count();
 	bool _stop = false;
 	_stop |= (iter >= max_iter);
-	_stop |= (seconds >= t_max);
+	_stop |= (seconds >= timeout);
 	if(!go){
 		COMM_WORLD.Barrier();
 		if(world_rank == 0 && (debug || DEBUG))
@@ -416,7 +416,7 @@ bool DICOD::stop(double dz){
 				 << seconds << endl;
 		return true;
 	}
-	if((debug || DEBUG) && seconds >= t_max && world_rank == 0)
+	if((debug || DEBUG) && seconds >= timeout && world_rank == 0)
 		cout << "DEBUG - MPI_worker - Reach timeout" << endl;
 	if((debug || DEBUG) && iter >= max_iter && world_rank == 0)
 		cout << "DEBUG - MPI_worker - Reach max iteration" << endl;
@@ -452,7 +452,7 @@ bool DICOD::stop(double dz){
 		COMM_WORLD.Barrier();
 	}
 	if(world_rank == 0 && (debug || DEBUG) &&  (iter % 1000 == 0 || pause)){
-		double progress = max(iter * 100.0 / max_iter, seconds * 100.0 / t_max);
+		double progress = max(iter * 100.0 / max_iter, seconds * 100.0 / timeout);
 		cout << "\rDEBUG - MPI_worker - Progress " << setw(2)
 			 << progress << "%   (probe: " << max_probe << ")" << flush;
 

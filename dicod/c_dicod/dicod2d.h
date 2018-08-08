@@ -45,7 +45,7 @@ class DICOD2D
 		double *D, *alpha_k, *DD;		// Dicitonary, norm of the dict and cross correlation
 
 		// Algorithm parameters
-		double lmbd, tol, t_max;
+		double lmbd, tol, timeout;
 		int max_iter, n_seg, algo, patience;
 		bool debug, logging, positive;
 
