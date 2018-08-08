@@ -25,8 +25,6 @@ if __name__ == '__main__':
     parser.add_argument('--exp', type=str, default=None,
                         metavar='DIRECTORY', help='If present, exp'
                         ' the result in the given DIRECTORY')
-    parser.add_argument('--graph', action='store_true',
-                        help='Show a graphical logging')
     parser.add_argument('--jobs', action='store_true',
                         help='Compute the runtime for different number '
                              'of cores')
@@ -52,10 +50,6 @@ if __name__ == '__main__':
                         help='Optimizer to test for scaling performances.')
     args = parser.parse_args()
 
-    graphical_cost = None
-    if args.graph:
-        graphical_cost = 'Cost'
-
     if args.jobs:
         from utils.iter_njobs import iter_njobs
         algorithm = ALGO_RANDOM if args.rcd else ALGO_GS
@@ -68,8 +62,8 @@ if __name__ == '__main__':
         #         run += [r]
         iter_njobs(T=args.T, max_jobs=args.njobs, n_rep=args.nrep,
                    exp_dir=args.exp, max_iter=5e8, timeout=args.tmax,
-                   hostfile=args.hostfile, lgg=False, graphical_cost=None,
-                   debug=args.d, algorithm=algorithm, seed=422742,
+                   hostfile=args.hostfile, lgg=False, debug=args.d,
+                   algorithm=algorithm, seed=422742,
                    run=args.run, use_seg=args.seg)
 
     if args.lmbd:
@@ -83,20 +77,17 @@ if __name__ == '__main__':
         from utils.compare_methods import compare_met
 
         compare_met(T=args.T, K=args.K, exp_dir=args.exp, max_iter=5e8,
-                    timeout=args.tmax, n_jobs=args.njobs, hostfile=args.hostfile,
-                    graphical_cost=graphical_cost, display=args.no_display,
-                    debug=args.d)
+                    timeout=args.tmax, n_jobs=args.njobs, debug=args.d,
+                    hostfile=args.hostfile, display=args.no_display)
 
     if args.step:
         from utils.step_detect import step_detect
         step_detect(exp_dir=args.exp, max_iter=5e6, timeout=args.tmax,
                     n_jobs=args.njobs, hostfile=args.hostfile,
-                    n_epoch=args.nepoch,
-                    graphical_cost=graphical_cost, debug=args.d)
+                    n_epoch=args.nepoch, debug=args.d)
 
     if args.rand:
         from utils.dict_learn import dict_learn
         dict_learn(exp_dir=args.exp, max_iter=5e6, timeout=args.tmax,
                    n_jobs=args.njobs, hostfile=args.hostfile,
-                   n_epoch=args.nepoch,
-                   graphical_cost=graphical_cost, debug=args.d)
+                   n_epoch=args.nepoch, debug=args.d)

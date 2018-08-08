@@ -11,7 +11,7 @@ from utils.rand_problem import fun_rand_problem
 
 def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
                timeout=7200, hostfile=None, run='all', lgg=False, use_seg=False,
-               graphical_cost=None, algorithm=ALGO_GS, debug=0, seed=None):
+               algorithm=ALGO_GS, debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -47,9 +47,6 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
         If set to true, enable the logging of the iteration cost
         during the run. It might slow down a bit the execution
         time and the collection of the results
-    graphical_cost: dict, optional (default: None)
-        Setup option to enable a graphical logging of the cost
-        function.
     algorithm: enum, optional (default: ALGO_GS)
         Algorithm used to select the update for the coordinate descent. It
         should be either ALGO_GS (greedy selection) or ALGO_RANDOM (random
@@ -61,9 +58,8 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
 
     '''
     common_args = dict(logging=lgg, log_rate='log1.6', max_iter=max_iter,
-                       timeout=timeout, graphical_cost=graphical_cost,
-                       debug=debug, tol=5e-2, hostfile=hostfile,
-                       algorithm=algorithm, patience=1000)
+                       timeout=timeout, debug=debug, tol=5e-2, patience=1000,
+                       hostfile=hostfile, algorithm=algorithm)
 
     # Do not use seg with ALGO_RANDOM
     assert not use_seg or algorithm == ALGO_GS

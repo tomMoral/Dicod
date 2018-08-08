@@ -13,17 +13,23 @@ class _LassoSolver(object):
 
     id_solver = 0
 
-    def __init__(self, stop='', tol=1e-10, graphical_cost=None,
-                 name=None, debug=0, logging=False,
-                 log_rate='log1.6', max_iter=1e6, timeout=40):
+    def __init__(self, stop='', tol=1e-10,
+                 log_rate='log1.6', max_iter=1e6, timeout=40,
+                 logging=False, name=None, debug=0):
         '''Generic functionalities for Lasso solvers
 
         Parameters
         ----------
-        param: list of the Parameters
-        alpha: learning rate controler
+        log_rate : numeric or str (default: 'log1.6')
+            scheduler to log the cost during the different iterations.
         max_iter: int (default: 1e6)
             maximal number of iteration for the considered method.
+        timeout : float (default: 40)
+            stop the computations after this number of seconds.
+        logging : boolean (default: False)
+            If set to True, compute and store the cost_curve.
+        name : str (default: None)
+            name of the solver.
         '''
         log.setLevel(max(3-debug, 1)*10)
         debug = max(debug-1, 0)
@@ -40,14 +46,13 @@ class _LassoSolver(object):
         self.max_iter = max_iter
         self.timeout = timeout
 
-        self.name = name if name is not None else '_GD' + str(self.id)
-        self.graph_cost = None
+        self.name = name if name else 'Solver' + str(self.id)
 
         self.reset()
 
-    def set_param(self, stop='', tol=1e-10, graphical_cost=None,
-                  name=None, debug=0, logging=False,
-                  log_rate='log1.6', max_iter=1000, timeout=40):
+    def set_param(self, stop='', tol=1e-10,
+                  log_rate='log1.6', max_iter=1000, timeout=40,
+                  logging=False, name=None, debug=0):
         if debug > 0:
             log.set_level(10)
 
@@ -60,10 +65,7 @@ class _LassoSolver(object):
         self.max_iter = max_iter
         self.timeout = timeout
 
-        self.name = name if name is not None else '_GD' + str(self.id)
-        self.graph_cost = None
-        if graphical_cost is not None:
-            self.graph_cost = dict(name=graphical_cost, curve=self.name)
+        self.name = name if name else 'Solver' + str(self.id)
 
     def solve(self, problem, **kwargs):
         self.pb = problem
@@ -95,8 +97,7 @@ class _LassoSolver(object):
         if self.iteration >= self.next_log and self.logging:
             log.log_obj(name='cost' + str(self.id), obj=np.copy(self.pb.pt),
                         iteration=self.iteration, fun=self.pb.cost,
-                        graph_cost=self.graph_cost, time=self.t,
-                        levl=50)
+                        time=self.t, levl=50)
             self.next_log = self.log_rate(self.iteration)
         stop = self._stop(dz)
         if stop:
@@ -158,7 +159,7 @@ class _LassoSolver(object):
         if self.logging:
             log.log_obj(name='cost'+str(self.id), obj=np.copy(self.pb.pt),
                         iteration=0.7, fun=self.pb.cost,
-                        graph_cost=self.graph_cost, time=time()-self.t_start)
+                        time=time()-self.t_start)
         self.next_log = self.log_rate(self.iteration)
 
     def end(self):
@@ -166,7 +167,7 @@ class _LassoSolver(object):
         if self.logging:
             log.log_obj(name='cost'+str(self.id), obj=self.pb.pt,
                         iteration=self.iteration, fun=self.pb.cost,
-                        graph_cost=self.graph_cost, time=self.t)
+                        time=self.t)
         log.debug('{} - End - iteration {}, time {:.4}s'
                   .format(self, self.iteration, self.t))
         log.debug('Total time: {:.4}s'.format(self.runtime))

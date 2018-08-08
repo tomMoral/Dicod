@@ -258,14 +258,12 @@ class DICOD2D(_LassoSolver):
         for it, i in enumerate(ordered_t):
             if it+1 >= next_log:
                 log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
-                            iteration=it+1, fun=pb.cost,
-                            graph_cost=self.graph_cost, time=t)
+                            iteration=it+1, fun=pb.cost, time=t)
                 next_log = self.log_rate(it+1)
             t, i0, dz = updates[i]
             pb.pt[i0 // L, (i0 % L) // self.w_cod, i0 % self.w_cod] += dz
         log.log_obj(name='cost'+str(self.id), obj=np.copy(pb.pt),
-                    iteration=it, fun=pb.cost,
-                    graph_cost=self.graph_cost, time=self.runtime+self.t_init)
+                    iteration=it, fun=pb.cost, time=self.runtime+self.t_init)
         log.debug('End logging cost')
 
     def gather_AB(self):

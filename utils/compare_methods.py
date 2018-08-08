@@ -14,8 +14,7 @@ log = logging.getLogger('dicod')
 
 
 def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
-                n_jobs=3, hostfile=None, graphical_cost=None,
-                display=True, debug=0):
+                n_jobs=3, hostfile=None, display=True, debug=0):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -38,15 +37,11 @@ def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
         Maximal number of jobs used for distributed algorithms
     hostfile: str, optional (default: None)
         hostfile used to launch MPI jobs
-    graphical_cost: dict, optional (default: None)
-        Setup option to enable a graphical logging of the cost
-        function.
     debug: int, optional (default:0)
         The greater it is, the more verbose the algorithm
     '''
     common_args = dict(logging=True, log_rate='log1.6', max_iter=max_iter,
-                       timeout=timeout, graphical_cost=graphical_cost,
-                       debug=debug, tol=1e-4)
+                       timeout=timeout, debug=debug, tol=1e-4)
     S = 200
     d = 7
     lmbd = 1
