@@ -65,7 +65,7 @@ if __name__ == '__main__':
 
     import argparse
     parser = argparse.ArgumentParser('Test dictionary learning for images')
-    parser.add_argument('--graph', action='store_true',
+    parser.add_argument('--display', action='store_true',
                         help='if set, display the resulting image')
     parser.add_argument('--ip', action='store_true',
                         help='if set, open an ipython terminal after')
@@ -185,12 +185,12 @@ if __name__ == '__main__':
         # plt.close()
         return imr
 
-    if args.graph:
+    if args.display:
         try:
             imr = show_rec()
-            residu = (imr-im0)*255
-            MSRE = np.sqrt(np.mean(residu*residu))
-            PSNR = 20*np.log(255/MSRE)
+            res = (imr-im0)*255
+            MSRE = np.sqrt(np.mean(res * res))
+            PSNR = 20*np.log(255 / MSRE)
             print("MSRE: {:.3f}; PSNR: {:.3f}".format(MSRE, PSNR))
 
         except Exception as e:

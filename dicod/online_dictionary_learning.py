@@ -13,13 +13,12 @@ log = logging.getLogger('dicod')
 class OnlineDicitonaryLearning(object):
     """Online dictionary learning"""
     def __init__(self, n_dict=15, K=100, optim=ConvolutionalPursuit,
-                 batch_size=1, graph=None, debug=0, **kwargs):
+                 batch_size=1, debug=0, **kwargs):
         super(OnlineDicitonaryLearning, self).__init__()
         self.n_dict = n_dict
         self.K = K
         self.optim = optim
         self.batch_size = batch_size
-        self.graph = graph
         self.kwargs = kwargs
         if debug:
             debug -= 1
@@ -62,9 +61,6 @@ class OnlineDicitonaryLearning(object):
             for ii, z in zip(i0, self.Z):
                 self.pZ[ii] = z
             C = np.sum(solver.scores)
-            if self.graph is not None:
-                log.graphical_cost(name=self.graph, curve='dictionary',
-                                   cost=C)
             if C >= Cp:
                 compt_up += 1
             else:

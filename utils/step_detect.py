@@ -11,8 +11,7 @@ log = logging.getLogger('dicod')
 
 
 def step_detect(max_iter=5e6, timeout=7200, n_jobs=2, hostfile=None,
-                n_epoch=10, graphical_cost=None, save_dir=None,
-                debug=0):
+                n_epoch=10, save_dir=None, debug=0):
     '''Run DICOD algorithm for a certain problem with different ValueError
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -31,9 +30,6 @@ def step_detect(max_iter=5e6, timeout=7200, n_jobs=2, hostfile=None,
         to run the convolutional sparse coding
     n_epoch: int, optional (default: 10)
         number of epoch run by the algorithm
-    graphical_cost: dict, optional (default: None)
-        Setup option to enable a grpahical logging of the cost
-        function
     save_dir: str, optional (default: None)
         If not None, all the runtimes will be saved in csv files
         contained in the given directory. The directory must exist.
@@ -100,8 +96,6 @@ def step_detect(max_iter=5e6, timeout=7200, n_jobs=2, hostfile=None,
             cost_i = np.sum(cost, axis=0)/N_see
             print('End mini_batch {:3} with cost {:e}'
                   ''.format(int(current_batch), cost_i))
-            if graphical_cost is not None:
-                log.graphical_cost(cost=np.sum(cost, axis=0)/N_see)
             if current_batch == 0:
                 print('='*79)
                 print('End Epoch {} in {:.2}s'
