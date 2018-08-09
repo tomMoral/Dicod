@@ -169,17 +169,13 @@ class DICOD(_LassoSolver):
         self.pt_dbg = np.copy(pt)
         log.info('End for {} : iteration {}, time {:.4}s'
                  .format(self, self.iteration, self.time))
-        log.debug('Total time: {:.4}s'.format(time()-self.t_start))
-        log.debug('Total time: {:.4}s'.format(self.runtime))
-        self.runtime += self.t_init
 
         if self.logging:
             self._log(iterations)
 
         self.comm.Barrier()
         self.runtime = time()-self.t_start
-        log.info("Conv sparse coding end in {:.4}s for {} iterations"
-                 .format(self.time, self.iteration))
+        log.debug('Total time: {:.4}s'.format(self.runtime))
 
     def _log(self, iterations):
         self.comm.Barrier()
