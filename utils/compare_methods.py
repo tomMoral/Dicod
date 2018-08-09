@@ -1,5 +1,6 @@
-import logging
 import os
+import pickle
+import logging
 
 from dicod.dicod import DICOD
 from dicod.fista import FISTA
@@ -50,6 +51,8 @@ def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
         save_dir = os.path.join("save_exp", save_dir)
         if not os.path.exists(save_dir):
             os.mkdir(save_dir)
+    file_name = 'cost_curves_T{}_K{}_njobs{}.pkl'.format(T, K, n_jobs)
+    file_name = os.path.join(save_dir, file_name)
 
     from collections import OrderedDict
     algos = OrderedDict()
@@ -79,36 +82,30 @@ def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
     )
 
     curves = {}
-
     if save_dir is not None:
-        import pickle
         try:
-            fname = 'cost_curves_T{}_K{}_njobs{}.pkl'.format(T, K, n_jobs)
-            fname = os.path.join(save_dir, fname)
-            with open(fname, 'rb') as f:
+            with open(file_name, 'rb') as f:
                 curves = pickle.load(f)
         except FileNotFoundError:
             pass
+
     for name, (algo, _) in algos.items():
         pb.reset()
-        print('\n\n' + '='*10 + ' {} '.format(name) + '='*10)
+        log.info('='*10 + ' {} '.format(name) + '='*10)
         algo.fit(pb)
 
         curves[name] = algo.cost_curve
 
         if save_dir is not None:
-            import pickle
             # Try loading previous values
             try:
-                fname = 'cost_curves_T{}_K{}_njobs{}.pkl'.format(T, K, n_jobs)
-                fname = os.path.join(save_dir, fname)
-                with open(fname, 'rb') as f:
+                with open(file_name, 'rb') as f:
                     o_curves = pickle.load(f)
             except FileNotFoundError:
                 o_curves = {}
             o_curves[name] = curves[name]
             curves = o_curves
-            with open(fname, 'wb') as f:
+            with open(file_name, 'wb') as f:
                 pickle.dump(o_curves, f)
 
     import IPython

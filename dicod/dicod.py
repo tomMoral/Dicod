@@ -72,19 +72,20 @@ class DICOD(_LassoSolver):
         self.K, self.d, self.S = self.pb.D.shape
 
         # Create a pool of worker
-        t_start = time()
+        t_start_init_pool = time()
         self._pool = get_reusable_pool(self.n_jobs, self.hostfile)
         self.comm = self._pool.comm
         msg = np.array([3] * 4).astype('i')  # Construct start message
         self._pool.mng_bcast(msg)
-        log.debug('Created pool of worker in {:.4}s'.format(time() - t_start))
+        self.t_init_pool = time() - t_start_init_pool
+        log.debug('Created pool of worker in {:.4}s'.format(self.t_init_pool))
 
         # Send the job to process
+        self.t_start = time()
         self.send_task()
 
     def send_task(self):
         self.K, self.d, self.S = self.pb.D.shape
-        self.t_start = time()
         pb = self.pb
         K, d, S = self.K, self.d, self.S
         T = pb.x.shape[1]
@@ -94,7 +95,6 @@ class DICOD(_LassoSolver):
         assert self.pb.DD is not None
         alpha_k = np.sum(np.mean(pb.D * pb.D, axis=1), axis=1)
         alpha_k += (alpha_k == 0)
-        self.t_init = time() - self.t_start
 
         self._broadcast_array(alpha_k)
         self._broadcast_array(pb.DD)
@@ -119,7 +119,6 @@ class DICOD(_LassoSolver):
             self.comm.Send([sig[:, i * L_proc:end].flatten(),
                             MPI.DOUBLE], i, tag=100 + i)
             expect += [sig[0, i * L_proc], sig[-1, end - 1]]
-        self.t_start = time()
         self._confirm_array(expect)
         self.L, self.L_proc = L, L_proc
 
@@ -130,20 +129,16 @@ class DICOD(_LassoSolver):
 
     def end(self):
         # reduce_pt
+        self.comm.Barrier()
+        log.debug("End computation, gather result")
+
         self._gather()
-        if type(self.t) == int:
-            self.t = time() - self.t_start
-        return
 
         log.debug("DICOD - Clean end")
-        self.comm.Disconnect()
 
     def _gather(self):
         K, L, L_proc = self.K, self.L, self.L_proc
         pt = np.empty((K, L), 'd')
-        self.comm.Barrier()
-        log.debug("End computation, gather result")
-        self.t = time()-self.t_start
 
         for i in range(self.n_jobs):
             off = i*self.L_proc
@@ -164,17 +159,16 @@ class DICOD(_LassoSolver):
                          root=MPI.ROOT)
         self.comm.Gather(None, [init_times, MPI.DOUBLE],
                          root=MPI.ROOT)
-        self.t_init += max(init_times)
         self.cost = np.sum(cost)
         self.iteration = np.sum(iterations)
-        self.runtime = times.max()
+        self.time = times.max()
         log.debug("Iterations {}".format(iterations))
         log.debug("Times {}".format(times))
         log.debug("Cost {}".format(cost))
         self.pb.pt = pt
         self.pt_dbg = np.copy(pt)
         log.info('End for {} : iteration {}, time {:.4}s'
-                 .format(self, self.iteration, self.t))
+                 .format(self, self.iteration, self.time))
         log.debug('Total time: {:.4}s'.format(time()-self.t_start))
         log.debug('Total time: {:.4}s'.format(self.runtime))
         self.runtime += self.t_init
@@ -183,8 +177,9 @@ class DICOD(_LassoSolver):
             self._log(iterations)
 
         self.comm.Barrier()
+        self.runtime = time()-self.t_start
         log.info("Conv sparse coding end in {:.4}s for {} iterations"
-                 .format(self.runtime, self.iteration))
+                 .format(self.time, self.iteration))
 
     def _log(self, iterations):
         self.comm.Barrier()

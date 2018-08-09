@@ -5,6 +5,10 @@ from time import time
 from .utils import CostCurve, get_log_rate
 
 log = logging.getLogger('dicod')
+if len(log.handlers) == 0:
+    handler = logging.StreamHandler()
+    handler.setFormatter(logging.Formatter("%(levelname)s - %(message)s"))
+    log.addHandler(handler)
 
 
 class _LassoSolver(object):
@@ -126,9 +130,9 @@ class _LassoSolver(object):
     def start(self):
         log.info('{} - Start'.format(self))
         self.reset()
-        t_start_init = time()
+        self.t_start = time()
         self._init_algo()
-        self.t_init = time() - t_start_init
+        self.t_init = time() - self.t_start
         self.time += self.t_init
         if self.logging:
             self.record(self.it, self.time, self.pb.cost())
@@ -153,7 +157,6 @@ class _LassoSolver(object):
         self.it = 0
         self.time = 0
         self.finished = False
-        self.t_start = time()
         self.cost_curve = CostCurve([], [], [])
 
     def fit(self, pb):
