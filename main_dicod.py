@@ -76,7 +76,7 @@ if __name__ == '__main__':
     if args.met:
         from utils.compare_methods import compare_met
 
-        compare_met(T=args.T, K=args.K, exp_dir=args.exp, max_iter=5e8,
+        compare_met(T=args.T, K=args.K, save_dir=args.exp, max_iter=5e8,
                     timeout=args.tmax, n_jobs=args.njobs, debug=args.d,
                     hostfile=args.hostfile, display=args.no_display)
 

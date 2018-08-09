@@ -1,16 +1,14 @@
 import logging
-import os.path as osp
-from time import sleep
+import os
 
 from dicod.dicod import DICOD
 from dicod.fista import FISTA
-from dicod.feature_sign_search import FSS
+# from dicod.feature_sign_search import FSS
 from dicod.fcsc import FCSC
 from utils.rand_problem import fun_rand_problem
 
 
 log = logging.getLogger('dicod')
-
 
 
 def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
@@ -49,68 +47,60 @@ def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
     pb = fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=42)
 
     if save_dir is not None:
-        save_dir = osp.join("save_exp", save_dir)
-        assert osp.exists(save_dir)
+        save_dir = os.path.join("save_exp", save_dir)
+        if not os.path.exists(save_dir):
+            os.mkdir(save_dir)
 
     from collections import OrderedDict
     algos = OrderedDict()
-    # algos['DICOD$_{{{}}}$'.format(n_jobs // 2)] = (DICOD(
-    #     pb, n_jobs=n_jobs // 2, hostfile=hostfile, **common_args),
-    #     'ms-'
-    # )
-    # algos['DICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
-    #     pb, n_jobs=n_jobs, hostfile=hostfile, **common_args),
-    #     'bH-'
-    # )
-    # algos['CD'] = (DICOD(
-    #     pb, n_jobs=1, hostfile=hostfile, **common_args), 'rd-')
-    # algos['RCD'] = (DICOD(
-    #     pb, algorithm=1, n_jobs=1, hostfile=hostfile, patience=5e5,
-    #     **common_args), 'cd-')
-    algos['Fista'] = (FISTA(pb, fixe=True, **common_args), 'y*-')
-    # # algos['FSS'] = (FSS(pb, n_zero_coef=40, **common_args), 'go-')
-    # algos['FCSC'] = (FCSC(pb, tau=1.01, **common_args), 'k.-')
-    # algos['LGCD$_{{{}}}$'.format(n_jobs)] = (DICOD(
-    #     pb, n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
-    #     'c^-'
-    # )
-    # algos['LGCD$_{{{}}}$'.format(n_jobs * 10)] = (DICOD(
-    #     pb, n_jobs=1, use_seg=n_jobs * 10, hostfile=hostfile, **common_args),
-    #     'c^-'
-    # )
+    algos['DICOD$_{{{}}}$'.format(n_jobs // 2)] = (DICOD(
+        n_jobs=n_jobs // 2, hostfile=hostfile, **common_args),
+        'ms-'
+    )
+    algos['DICOD$_{{{}}}$'.format(n_jobs)] = (DICOD(
+        n_jobs=n_jobs, hostfile=hostfile, **common_args),
+        'bH-'
+    )
+    algos['CD'] = (DICOD(
+        n_jobs=1, hostfile=hostfile, **common_args), 'rd-')
+    algos['RCD'] = (DICOD(
+        algorithm=1, n_jobs=1, hostfile=hostfile, patience=5e5,
+        **common_args), 'cd-')
+    algos['Fista'] = (FISTA(fixe=True, **common_args), 'y*-')
+    # algos['FSS'] = (FSS(n_zero_coef=40, **common_args), 'go-')
+    algos['FCSC'] = (FCSC(tau=1.01, **common_args), 'k.-')
+    algos['LGCD$_{{{}}}$'.format(n_jobs)] = (DICOD(
+        n_jobs=1, use_seg=n_jobs, hostfile=hostfile, **common_args),
+        'c^-'
+    )
+    algos['LGCD$_{{{}}}$'.format(n_jobs * 10)] = (DICOD(
+        n_jobs=1, use_seg=n_jobs * 10, hostfile=hostfile, **common_args),
+        'c^-'
+    )
 
     curves = {}
 
     if save_dir is not None:
         import pickle
         try:
-            fname = osp.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K))
+            fname = os.path.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K))
             with open(fname, 'rb') as f:
                 curves = pickle.load(f)
         except FileNotFoundError:
             pass
     for name, (algo, _) in algos.items():
         pb.reset()
-        print('\n\n')
-        log.info(name)
+        print('\n\n' + '='*10 + ' {} '.format(name) + '='*10)
         algo.fit(pb)
-        log.process_queue()
-        sleep(1)
-        i = int(str(algo).split('_')[-1])
-        cost = log.output.log_objects['cost{}'.format(i)]
-        t = log.output.log_objects['cost{}_t'.format(i)]
-        t = [4e-2] + t
-        cost = [cost[0]] + cost
 
-        it = log.output.log_objects['cost{}_i'.format(i)]
-
-        curves[name] = (it, t, cost)
+        curves[name] = algo.cost_curve
 
         if save_dir is not None:
             import pickle
             # Try loading previous values
             try:
-                fname = osp.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K))
+                fname = 'cost_curves_T{}_K{}.pkl'.format(T, K)
+                fname = os.path.join(save_dir, fname)
                 with open(fname, 'rb') as f:
                     o_curves = pickle.load(f)
             except FileNotFoundError:

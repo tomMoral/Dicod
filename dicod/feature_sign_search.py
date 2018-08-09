@@ -19,27 +19,23 @@ class FSS(_LassoSolver):
     while not finished:
         finished = fss.p_update()
     """
-    def __init__(self, pb, n_zero_coef=100, relax=1e-8,
-                 debug=0, **kwargs):
+    def __init__(self, n_zero_coef=100, relax=1e-8, **kwargs):
         '''Feature Sign Search Algorihtm
 
         Parameters
         ----------
-        pb: inherits from _Problem
-            object to hold the different variables of the problem
         n_zero_coef: int, optional (default: 100)
             Maximal number of newly active coefficients
         relax: float, optional (default: 1e-8)
             Threshold to consider there is no movement anymore
         '''
-        super(FSS, self).__init__(problem=pb, debug=debug,
-                                  **kwargs)
+        super(FSS, self).__init__(**kwargs)
         self.relax = relax
         self.n_zero_coef = n_zero_coef
-        self.name = 'FSS_'+str(self.id)
+        self.name = 'FSS_' + str(self.id)
 
     def p_update(self):
-        '''One step for the Algorihtm
+        '''One step for the Algorithm
         Update the active set and solve the
         quadratic subproblem
         '''
@@ -57,7 +53,6 @@ class FSS(_LassoSolver):
         _, self.d, self.s = self.pb.D.shape
         self.L = len(self.pb.x) - self.s + 1
 
-        self.pb.compute_DD()
         self.DD = self.pb.DD
         self.B = np.array([np.mean([np.convolve(dk, xk, 'valid')
                                    for dk, xk in zip(d, self.pb.x)], axis=0)

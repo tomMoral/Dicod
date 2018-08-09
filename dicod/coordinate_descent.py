@@ -27,7 +27,6 @@ class CoordinateDescent(_LassoSolver):
         self.alpha_k = np.sum(np.mean(self.pb.D*self.pb.D, axis=1),
                               axis=1).reshape((-1, 1))
         self.alpha_k += (self.alpha_k == 0)
-        self.pb.compute_DD()
         self.DD = self.pb.DD
 
     def p_update(self):
