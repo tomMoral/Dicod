@@ -83,7 +83,8 @@ def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
     if save_dir is not None:
         import pickle
         try:
-            fname = os.path.join(save_dir, 'cost_curves_T{}_K{}.pkl'.format(T, K))
+            fname = 'cost_curves_T{}_K{}_njobs{}.pkl'.format(T, K, n_jobs)
+            fname = os.path.join(save_dir, fname)
             with open(fname, 'rb') as f:
                 curves = pickle.load(f)
         except FileNotFoundError:
@@ -99,7 +100,7 @@ def compare_met(T=80, K=10, save_dir=None, max_iter=5e6, timeout=7200,
             import pickle
             # Try loading previous values
             try:
-                fname = 'cost_curves_T{}_K{}.pkl'.format(T, K)
+                fname = 'cost_curves_T{}_K{}_njobs{}.pkl'.format(T, K, n_jobs)
                 fname = os.path.join(save_dir, fname)
                 with open(fname, 'rb') as f:
                     o_curves = pickle.load(f)
