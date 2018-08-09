@@ -54,7 +54,7 @@ if __name__ == '__main__':
         plots.append(("cost_curves*.pkl", plot_compare_methods))
 
     if args.jobs:
-        plots.append(("runtimes_*.csv", plot_scaling_n_jobs))
+        plots.append(("runtimes_n_jobs_*.csv", plot_scaling_n_jobs))
 
     for pattern, plot_func in plots:
         data_file_pattern = os.path.join(args.dir, pattern)

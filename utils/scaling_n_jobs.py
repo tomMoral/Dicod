@@ -10,9 +10,9 @@ from dicod.utils import TimingLogs
 from utils.rand_problem import fun_rand_problem
 
 
-def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
-               timeout=7200, hostfile=None, run='all', lgg=False,
-               use_seg=False, algorithm=ALGO_GS, debug=0, seed=None):
+def scaling_n_jobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
+                   timeout=7200, hostfile=None, run='all', lgg=False,
+                   use_seg=False, algorithm=ALGO_GS, debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -79,7 +79,7 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
 
     rng = np.random.RandomState(seed)
     suffix = "_random" if algorithm else "_seg" if use_seg else ""
-    file_name = 'runtimes_{}{}.csv'.format(T, suffix)
+    file_name = 'runtimes_n_jobs_{}{}.csv'.format(T, suffix)
     file_name = osp.join(save_dir, file_name)
 
     for j in range(n_rep):

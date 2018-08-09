@@ -50,7 +50,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.jobs:
-        from utils.iter_njobs import iter_njobs
+        from utils.scaling_n_jobs import scaling_n_jobs
         algorithm = ALGO_RANDOM if args.rcd else ALGO_GS
         # # Extract njobs in list of str
         # run = []
