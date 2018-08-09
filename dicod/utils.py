@@ -3,6 +3,7 @@ from collections import namedtuple
 
 
 CostCurve = namedtuple('CostCurve', ['iterations', 'times', 'pobj'])
+TimingLogs = namedtuple('TimingLogs', ['time', 'runtime', 't_init'])
 
 
 def get_log_rate(lr):

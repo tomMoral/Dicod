@@ -6,6 +6,7 @@ import matplotlib.pyplot as plt
 from collections import defaultdict
 
 from dicod.dicod import DICOD, ALGO_GS
+from dicod.utils import TimingLogs
 from utils.rand_problem import fun_rand_problem
 
 
@@ -78,14 +79,14 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
 
     rng = np.random.RandomState(seed)
     suffix = "_random" if algorithm else "_seg" if use_seg else ""
-    fname = 'runtimes_{}{}.csv'.format(T, suffix)
-    fname = osp.join(save_dir, fname)
+    file_name = 'runtimes_{}{}.csv'.format(T, suffix)
+    file_name = osp.join(save_dir, file_name)
 
     for j in range(n_rep):
         seed_pb = rng.randint(4294967295)
         pb = fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=seed_pb)
 
-        dcp = DICOD(n_jobs=2, **common_args)
+        dicod = DICOD(n_jobs=2, **common_args)
 
         runtimes = []
         n_jobs = np.logspace(0, np.log2(75), 10, base=2)
@@ -96,30 +97,31 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
             code_run = "{}:{}".format(nj, j)
             if (run != 'all' and str(nj) not in run and code_run not in run):
                 continue
-            dcp.reset()
+            dicod.reset()
             pb.reset()
-            dcp.n_jobs = nj
-            dcp.use_seg = T // nj if use_seg else 1
+            dicod.n_jobs = nj
+            dicod.use_seg = T // nj if use_seg else 1
 
-            dcp.fit(pb)
-            runtimes += [[dcp.runtime, dcp.t]]
+            dicod.fit(pb)
+            timings = TimingLogs(time=dicod.time, runtime=dicod.runtime,
+                                 t_init=dicod.t_int)
+            runtimes += [[timings]]
             import time
             time.sleep(1)
-            rt = runtimes[-1]
             if save_dir is not None:
-                with open(fname, 'a') as f:
+                with open(file_name, 'a') as f:
                     f.write('Pb{},{},{},{}\n'.format(
-                        j, nj, rt[0], rt[1]))
+                        j, nj, timings[0], timings[1]))
             print('=' * 79)
             print('[{}] PB{}: End process with {} jobs  in {:.2f}s'
                   ''.format(datetime.datetime.now().strftime("%I:%M"),
-                            j, nj, rt[0]))
+                            j, nj, timings[0]))
             print('\n' + '=' * 79)
             sleep(.5)
 
     min_njobs = 0
     fig, axs = plt.subplots(1, 1, sharex=True, num="scaling")
-    with open(fname) as f:
+    with open(file_name) as f:
         lines = f.readlines()
     arr = defaultdict(lambda: [])
     for l in lines:
