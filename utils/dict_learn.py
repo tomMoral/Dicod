@@ -53,7 +53,6 @@ def dict_learn(max_iter=5e6, timeout=7200, n_jobs=2, hostfile=None,
         print('End\n')
         lmbd = .3
 
-        pbs[0].compute_DD()
         dcp = DICOD(pbs[0], n_jobs=n_jobs, hostfile=hostfile,
                     positive=True, use_seg=5, **common_args)
 

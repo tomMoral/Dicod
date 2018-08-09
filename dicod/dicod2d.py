@@ -102,7 +102,6 @@ class DICOD2D(_LassoSolver):
         w_cod = w_sig-w_dic+1
 
         # Share constants
-        pb.compute_DD(DD=DD)
         alpha_k = np.sum(np.mean(pb.D*pb.D, axis=1), axis=-1).sum(axis=-1)
         alpha_k += (alpha_k == 0)
         self.t_init = time() - self.t_start

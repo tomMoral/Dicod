@@ -26,7 +26,6 @@ def fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=None):
     z0 = np.zeros((K, (T - 1) * S + 1))
     pb = MultivariateConvolutionalCodingProblem(
         D, X, z0=z0, lmbd=lmbd)
-    pb.compute_DD()
     return pb
 
 
@@ -53,7 +52,6 @@ def fun_rand_problem_old(T, S, K, d, lmbd, noise_level, seed=None):
     z0 = np.zeros((K, (T - 1) * S + 1))
     pb = MultivariateConvolutionalCodingProblem(
         D, X, z0=z0, lmbd=lmbd)
-    pb.compute_DD()
     return pb
 
 
@@ -83,8 +81,8 @@ def fun_step_problem(lmbd, N=None, K=5, same=False):
     l_max = np.max([d.shape[1] for d in D])
     D = [np.c_[d, np.zeros((6, l_max-d.shape[1]))] for d in D]
     D = np.array(D)
-    #D = .001*np.random.normal(size=D.shape)
-    #D = np.cumsum(D, axis=-1)
+    # D = .001*np.random.normal(size=D.shape)
+    # D = np.cumsum(D, axis=-1)
 
     pbs = []
     for ex in lex_test:
@@ -115,7 +113,6 @@ def fun_step_problem(lmbd, N=None, K=5, same=False):
         sig_W = _whiten_sig(ex)
         pbs += [(MultivariateConvolutionalCodingProblem(
             D, sig_W[:6], lmbd=lmbd), ex, 'right')]
-        pbs[-1][0].compute_DD()
 
     return pbs, D, D_labels
 

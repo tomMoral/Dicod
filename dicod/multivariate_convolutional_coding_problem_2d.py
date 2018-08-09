@@ -45,28 +45,25 @@ class MultivariateConvolutionalCodingProblem2D(_Problem):
         self.d = self.x.shape[0]
         self._pool = Parallel(n_jobs=-1)
 
-    def compute_DD(self, DD=None):
-        self.DD = DD
-        if self.DD is None:
-            self.DD = np.mean([[[fftconvolve(dk0, dk1, mode='full')
-                                 for dk0, dk1 in zip(d0, d1)]
-                                for d1 in self.D]
-                               for d0 in self.D[:, :, ::-1, ::-1]], axis=2)
-        self.L = np.sqrt(np.sum(self.DD*self.DD, axis=0).sum(axis=0)).sum()
-        return self.DD
+        self.DD = np.mean([[[fftconvolve(dk0, dk1, mode='full')
+                             for dk0, dk1 in zip(d0, d1)]
+                            for d1 in self.D]
+                           for d0 in self.D[:, :, ::-1, ::-1]], axis=2)
 
-    def update_D(self, dD, D=None, DD=None):
+        self.L = np.linalg.norm(self.DD, axis=(0, 1), ord=2).sum()
+
+    def update_D(self, dD, D=None):
         if D is None:
             D = self.D
             if dD is not None:
                 D = D + dD
         self.D = D
-        self.L = np.sqrt(np.mean(self.D*self.D))
-        if DD is None:
-            self.compute_DD()
-        else:
-            self.DD = DD
-        return self.D, self.DD
+
+        self.DD = np.mean([[[fftconvolve(dk0, dk1, mode='full')
+                             for dk0, dk1 in zip(d0, d1)]
+                            for d1 in self.D]
+                           for d0 in self.D[:, :, ::-1, ::-1]], axis=2)
+        self.L = np.linalg.norm(self.DD, axis=(0, 1), ord=2).sum()
 
     def Er(self, pt):
         '''Commpute the reconstruction error

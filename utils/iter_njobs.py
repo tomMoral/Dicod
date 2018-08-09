@@ -10,8 +10,8 @@ from utils.rand_problem import fun_rand_problem
 
 
 def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
-               timeout=7200, hostfile=None, run='all', lgg=False, use_seg=False,
-               algorithm=ALGO_GS, debug=0, seed=None):
+               timeout=7200, hostfile=None, run='all', lgg=False,
+               use_seg=False, algorithm=ALGO_GS, debug=0, seed=None):
     '''Run DICOD algorithm for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -85,8 +85,7 @@ def iter_njobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
         seed_pb = rng.randint(4294967295)
         pb = fun_rand_problem(T, S, K, d, lmbd, noise_level, seed=seed_pb)
 
-        dcp = DICOD(pb, n_jobs=2,
-                    **common_args)
+        dcp = DICOD(n_jobs=2, **common_args)
 
         runtimes = []
         n_jobs = np.logspace(0, np.log2(75), 10, base=2)

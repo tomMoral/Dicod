@@ -95,7 +95,6 @@ if __name__ == '__main__':
     from dicod.multivariate_convolutional_coding_problem_2d import \
         MultivariateConvolutionalCodingProblem2D as mccp
     pb = mccp(D, im, lmbd=.001)
-    pb.compute_DD()
     nD = np.sqrt(np.mean(pb.D*pb.D, axis=1).sum(axis=-1).sum(axis=-1))
     rm_D = set()
     for k in range(K):
@@ -111,7 +110,6 @@ if __name__ == '__main__':
     print("Number of dictionary : {}".format(len(D)))
     D = np.array(D)
     pb = mccp(D, im, lmbd=.001)
-    pb.compute_DD()
 
     # Intiate the algorithm
     w_world = 6
