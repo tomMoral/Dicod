@@ -85,8 +85,10 @@ class DICODWorker():
 
         X_shape = (n_channels, height_worker + height_atom - 1,
                    width_worker + width_atom - 1)
+        print(self.rank, X_shape)
         X_shape = [int(v) for v in X_shape]
         self.X_worker = np.empty(X_shape, dtype='d')
+        print(self.rank, "recv", TAG_ROOT + self.rank)
         self._comm.Recv([self.X_worker.ravel(), MPI.DOUBLE], source=0,
                         tag=TAG_ROOT + self.rank)
 

@@ -2,7 +2,7 @@ import numpy as np
 from scipy.signal import fftconvolve
 
 
-from .utils import soft_thresholding
+from .utils import soft_thresholding, reconstruct
 from .utils import compute_DtD, compute_norm_atoms
 from .utils import check_random_state, NEIGHBOR_POS
 
@@ -60,7 +60,7 @@ def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
     seg_shape, grid_seg, n_seg = _get_seg_info(
         n_seg, height_valid, width_valid, atom_shape)
 
-    # Compute some
+    # Pre-compute some quantities
     constants = {}
     constants['norm_atoms'] = compute_norm_atoms(D)
     constants['DtD'] = compute_DtD(D)
@@ -97,8 +97,7 @@ def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
 
             # update beta
             beta, dz_opt = _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D,
-                                        lmbd, constants, seg_bounds,
-                                        z_positive)
+                                        lmbd, constants, z_positive)
             _update_active_segment(h0, w0, i_seg, active_segments, accumulator,
                                    seg_bounds, grid_seg, atom_shape)
 
@@ -185,12 +184,18 @@ def _init_beta(X_i, z_i, D, lmbd, constants, z_positive):
     else:
         norm_atoms = compute_norm_atoms(D)
 
+    nnz = z_i.nonzero()
+    if len(nnz[0]) > 0:
+        residual = reconstruct(z_i, D) - X_i
+    else:
+        residual = -X_i
+
     beta = np.sum(
         [[fftconvolve(dkp, res_p, mode='valid')
-          for dkp, res_p in zip(dk, -X_i)]
+          for dkp, res_p in zip(dk, residual)]
          for dk in D[:, :, ::-1, ::-1]], axis=1)
 
-    for k, h, w in zip(*z_i.nonzero()):
+    for k, h, w in zip(*nnz):
         beta[k, h, w] -= z_i[k, h, w] * norm_atoms[k]
 
     dz_opt = soft_thresholding(-beta, lmbd, positive=z_positive) / norm_atoms \
@@ -249,7 +254,7 @@ def _select_coordinate(dz_opt, seg_bounds, active_seg, strategy='greedy',
 
 
 def _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D, lmbd, constants,
-                 z_positive):
+                 z_positive, coordinate_exist=True):
     """Update the optimal value for the coordinate updates.
 
     Parameters
@@ -270,6 +275,9 @@ def _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D, lmbd, constants,
         Pre-computed constants for the computations
     z_positive : boolean
         If set to true, the activations are constrained to be positive.
+    coordinate_exist : boolean
+        If set to true, the coordinate is located in the updated part of beta.
+        This option is only useful for DICOD.
 
     Return
     ------
@@ -297,7 +305,8 @@ def _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D, lmbd, constants,
                     slice(start_width_up, end_width_up))
 
     # update beta
-    beta_i0 = beta[k0, h0, w0]
+    if coordinate_exist:
+        beta_i0 = beta[k0, h0, w0]
     update_height = end_height_up - start_height_up
     offset_height = max(0, height_atom - h0 - 1)
     update_width = end_width_up - start_width_up
@@ -306,13 +315,16 @@ def _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D, lmbd, constants,
         DtD[:, k0, offset_height:offset_height + update_height,
             offset_width:offset_width + update_width] * dz
     )
-    beta[k0, h0, w0] = beta_i0
 
     # update dz_opt
     tmp = soft_thresholding(-beta[update_slice], lmbd,
                             positive=z_positive) / norm_atoms
     dz_opt[update_slice] = tmp - z_hat[update_slice]
-    dz_opt[k0, h0, w0] = 0
+
+    # If the coordinate exists, put it back to 0 update
+    if coordinate_exist:
+        beta[k0, h0, w0] = beta_i0
+        dz_opt[k0, h0, w0] = 0
 
     return beta, dz_opt
 
@@ -360,9 +372,9 @@ def get_interfering_neighbors(h0, w0, i_seg, seg_bounds, grid_shape,
         -1 if they do not exist. This returns None when the segment is not
         touched by the given update.
     """
-    height, width = grid_shape
-    assert 0 <= i_seg < height * width
-    h_cell, w_cell = i_seg // height, i_seg % height
+    grid_height, grid_width = grid_shape
+    assert 0 <= i_seg < grid_height * grid_width
+    h_cell, w_cell = i_seg // grid_width, i_seg % grid_width
 
     interfering_neighbors = [None] * 8
     h_interf = _is_interfering_update(h0, atom_shape[0], *seg_bounds[0])
@@ -371,11 +383,11 @@ def get_interfering_neighbors(h0, w0, i_seg, seg_bounds, grid_shape,
     for i, (dh, dw) in enumerate(NEIGHBOR_POS):
         h_neighbor = h_cell + dh
         w_neighbor = w_cell + dw
-        has_neighbor = 0 <= h_neighbor < height
-        has_neighbor &= 0 <= w_neighbor < width
+        has_neighbor = 0 <= h_neighbor < grid_height
+        has_neighbor &= 0 <= w_neighbor < grid_width
         if h_interf[dh] and w_interf[dw]:
             if has_neighbor:
-                interfering_neighbors[i] = h_neighbor * width + w_neighbor
+                interfering_neighbors[i] = h_neighbor * grid_width + w_neighbor
             else:
                 interfering_neighbors[i] = -1
 
