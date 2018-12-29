@@ -94,7 +94,8 @@ if __name__ == '__main__':
     D = init_D(im, K, h_dic, w_dic, overlap=0, method='KM')
     from dicod.multivariate_convolutional_coding_problem_2d import \
         MultivariateConvolutionalCodingProblem2D as mccp
-    pb = mccp(D, im, lmbd=.001)
+
+    # remove atoms that are too correlated
     nD = np.sqrt(np.mean(pb.D*pb.D, axis=1).sum(axis=-1).sum(axis=-1))
     rm_D = set()
     for k in range(K):

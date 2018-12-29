@@ -4,8 +4,6 @@ import time
 import numpy as np
 from mpi4py import MPI
 
-from scipy.signal import fftconvolve
-
 from dicod_python.utils_mpi import recv_broadcasted_array
 from dicod_python.utils import compute_DtD, compute_norm_atoms
 from dicod_python.utils import NEIGHBOR_POS
@@ -24,9 +22,36 @@ ALGO_RANDOM = 1
 TAG_ROOT = 4242
 
 
+class CoordinateSystems:
+    """Utility to move from on coordinate system to another easily
+    """
+
+    def __init__(self, offset, bounds):
+        self.offset = offset
+        self.bounds = bounds
+
+    def get_full_coordinate(self, pt):
+        res = []
+        for v, offset, (padding, _) in zip(pt, self.offset, self.bounds):
+            res += [v - padding + offset]
+        return res
+
+    def get_local_coordinate(self, pt):
+        res = []
+        for v, offset, (padding, _) in zip(pt, self.offset, self.bounds):
+            res += [v + padding - offset]
+        return res
+
+    def is_valid_local_coordinate(self, pt):
+        is_valid = True
+        for v, (v_start, v_end) in zip(pt, self.bounds):
+            is_valid &= (v_start <= v < v_end)
+        return is_valid
+
+
 def dicod_worker(comm):
     # Receive the task and the parameters for the algorithm
-    X_worker, D, worker_bounds, worker_offset, params = _receive_task(comm)
+    X_worker, D, worker_bounds, coordinate_system, params = _receive_task(comm)
     rank = comm.Get_rank()
     tol = params['tol']
     lmbd = params['lmbd']
@@ -61,23 +86,23 @@ def dicod_worker(comm):
     accumulator = n_seg
     k0, h0, w0 = 0, -1, -1
     active_segments = np.array([True] * n_seg)
-    seg_bounds = [[0, seg_shape[0]], [0, seg_shape[1]]]
+    (h_start, _), (w_start, _) = worker_bounds
+    seg_bounds = [[h_start, h_start + seg_shape[0]],
+                  [w_start, w_start + seg_shape[1]]]
     z_hat = np.zeros((n_atoms, height_valid, width_valid))
 
     beta, dz_opt = _init_beta(X_worker, z_hat, D, lmbd, constants,
                               z_positive)
 
     t_start = time.time()
-    print(rank, worker_bounds, params['grid_workers'], atom_shape)
     for ii in range(params['max_iter']):
         if rank == 0 and ii % 1000 == 0 and verbose > 0:
             print("\rCD {:7.2%}".format(ii / params['max_iter']), end='',
                   flush=True)
 
         beta, dz_opt, active_segments, accumulator = _process_neighbors_update(
-            comm, worker_bounds, beta, dz_opt, z_hat, D, lmbd, constants,
-            z_positive, active_segments, accumulator, debug=True,
-            worker_offset=worker_offset)
+            comm, beta, dz_opt, z_hat, D, lmbd, constants, z_positive,
+            active_segments, accumulator, coordinate_system)
         k0, h0, w0, dz = _select_coordinate(dz_opt, seg_bounds,
                                             active_segments[i_seg],
                                             strategy=strategy,
@@ -93,10 +118,8 @@ def dicod_worker(comm):
         # greater than the convergence tolerance and is contained in the worker
         # If the update is not in the worker, this will effectively work has a
         # soft lock to prevent interferences.
-        is_large, is_valid = _is_valid_coordinate_update(
-            h0, w0, dz, tol, worker_bounds)
-        if is_large:
-            if is_valid:
+        if abs(dz) > tol:
+            if coordinate_system.is_valid_local_coordinate((h0, w0)):
                 # update the selected coordinate
                 z_hat[k0, h0, w0] += dz
 
@@ -115,8 +138,9 @@ def dicod_worker(comm):
                 _update_active_segment(update_msg, interfering_neighbors,
                                        interfering_workers,
                                        active_segments, accumulator,
-                                       worker_bounds, debug=True,
-                                       worker_offset=worker_offset)
+                                       coordinate_system)
+            else:
+                raise RuntimeError(rank, (k0, h0, w0), seg_bounds)
 
         elif active_segments[i_seg] and strategy == "greedy":
             accumulator -= 1
@@ -127,22 +151,22 @@ def dicod_worker(comm):
             pass
 
         # check stopping criterion
-        # if _check_convergence(accumulator, tol, ii, n_coordinates,
-        #                       strategy):
-        #     if verbose > 0:
-        #         print("[Coordinate descent converged after {} iterations"
-        #               .format(ii + 1))
-        #     break
+        if _check_convergence(accumulator, tol, ii, n_coordinates,
+                              strategy):
+            if verbose > 1:
+                print("[Worker-{:<3}] LGCD converged after {} iterations"
+                      .format(rank, ii + 1))
+            break
 
         i_seg, seg_bounds = _next_seg(i_seg, seg_bounds, grid_seg, seg_shape,
                                       worker_bounds)
 
     comm.Barrier()
     if rank == 0 and verbose > 0:
-        print("\r CD done in {}s".format(time.time() - t_start))
+        print("\r[DICOD] LGCD finished in {}s".format(time.time() - t_start))
 
     _send_result(comm, z_hat, worker_bounds, atom_shape)
-    return z_hat
+    return verbose
 
 
 def _is_valid_coordinate_update(h0, w0, dz, tol, worker_bounds):
@@ -212,7 +236,7 @@ def _receive_task(comm):
     params = comm.bcast(None, root=0)
     D = recv_broadcasted_array(comm)
 
-    strategy = params['strategy'],
+    strategy = params['strategy']
     height_valid, width_valid = params['valid_shape']
     n_atoms, n_channels, height_atom, width_atom = D.shape
     h_world, w_world = params['grid_workers']
@@ -251,18 +275,19 @@ def _receive_task(comm):
     comm.Recv([X_worker.ravel(), MPI.DOUBLE], source=0, tag=TAG_ROOT + rank)
 
     if params['debug']:
-        print('send back')
-        X_alpha = np.concatenate([X_worker, 0.25 * np.ones((1,) + X_shape[1:])])
+        X_alpha = np.concatenate([X_worker,
+                                  0.25 * np.ones((1,) + X_shape[1:])])
+
         comm.Send([X_alpha.ravel(), MPI.DOUBLE], dest=0,
                   tag=TAG_ROOT + rank)
 
+    coordinate_system = CoordinateSystems(worker_offset, worker_bounds)
     comm.Barrier()
-    return X_worker, D, worker_bounds, worker_offset, params
+    return X_worker, D, worker_bounds, coordinate_system, params
 
 
 def _update_active_segment(update, interfering_neighbors, interfering_workers,
-                           active_segments, accumulator, worker_bounds,
-                           debug, worker_offset):
+                           active_segments, accumulator, coordinate_system):
     """Update the active segment if the current update interfered with it.
 
     Parameters
@@ -281,12 +306,7 @@ def _update_active_segment(update, interfering_neighbors, interfering_workers,
     accumulator : int
         Total number of active segments
     """
-    rank = MPI.COMM_WORLD.Get_rank()
-    (h_start, h_end), (w_start, w_end) = worker_bounds
-    k0, h0, w0, dz = update
-    h, w = get_true_coordinate(h0, w0, worker_bounds, worker_offset)
 
-    send = False
     for i, (i_neighbor, i_worker) in enumerate(zip(interfering_neighbors,
                                                    interfering_workers)):
         if i_neighbor is not None and i_neighbor >= 0:
@@ -294,59 +314,25 @@ def _update_active_segment(update, interfering_neighbors, interfering_workers,
             active_segments[i_neighbor] = True
         if i_worker is not None and i_worker >= 0:
             # XXX: notify the neighbor
-            dh, dw = NEIGHBOR_POS[i]
-            if dh > 0:
-                h0 -= h_end
-            elif dh < 0:
-                h0 -= h_start
-            if dw > 0:
-                w0 -= w_end
-            elif dw < 0:
-                w0 -= w_start
-            msg = np.array([i, k0, h0, w0, dz], 'd')
-            if debug:
-                msg = np.array([i, k0, h0, w0, dz, h, w])
+            k0, h0, w0, dz = update
+            h0, w0 = coordinate_system.get_full_coordinate((h0, w0))
+            msg = np.array([k0, h0, w0, dz], 'd')
             MPI.COMM_WORLD.Isend([msg, MPI.DOUBLE], dest=i_worker)
-            send = True
-
-    if 237 <= h < 267:
-        assert send, (rank, h, update[1], interfering_workers)
-    else:
-        assert not send, (rank, h, update[1], interfering_workers)
 
 
-def _process_neighbors_update(comm, worker_bounds, beta, dz_opt, z_hat, D,
-                              lmbd, constants, z_positive, active_segments,
-                              accumulator, debug=False, worker_offset=None):
-    (h_start, h_end), (w_start, w_end) = worker_bounds
+def _process_neighbors_update(comm, beta, dz_opt, z_hat, D, lmbd, constants,
+                              z_positive, active_segments, accumulator,
+                              coordinate_system):
 
     status = MPI.Status()
-    msg = np.empty(5, 'd')
-    if debug:
-        msg = np.empty(7, 'd')
+    msg = np.empty(4, 'd')
     while MPI.COMM_WORLD.Iprobe(status=status):
-        MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=status.source)
-        if debug:
-            i, k0, h0, w0, dz, h, w = msg
-        else:
-            i, k0, h0, w0, dz = msg
+        src = status.source
+        MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=src)
+        k0, h0, w0, dz = msg
 
-        i, k0, h0, w0 = int(i), int(k0), int(h0), int(w0)
-        dh, dw = NEIGHBOR_POS[i]
-        if dh > 0:
-            h0 += h_start
-        elif dh < 0:
-            h0 += h_end
-        if dw > 0:
-            w0 += w_start
-        elif dw < 0:
-            w0 += w_end
-
-        if debug:
-            h_true, w_true = get_true_coordinate(h0, w0, worker_bounds,
-                                                 worker_offset)
-            assert (h, w) == (h_true, w_true), (
-                h_true, w_true, h, w, NEIGHBOR_POS[i])
+        k0, h0, w0 = int(k0), int(h0), int(w0)
+        h0, w0 = coordinate_system.get_local_coordinate((h0, w0))
         height, width = beta.shape[1:]
         coordinate_exist = (0 <= h0 < height) and (0 <= w0 < width)
         beta, dz_opt = _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D,
@@ -380,18 +366,18 @@ def _next_seg(i_seg, seg_bounds, grid_seg, seg_shape, worker_bounds):
 
     height_n_seg, width_n_seg = grid_seg
     height_seg, width_seg = seg_shape
-    (h_start, _), (w_start, _) = worker_bounds
+    (h_start, h_end), (w_start, w_end) = worker_bounds
 
     # increment to next segment
     i_seg += 1
     seg_bounds[1][0] += width_seg
-    seg_bounds[1][1] += width_seg
+    seg_bounds[1][1] = min(seg_bounds[1][1] + width_seg, w_end)
 
     if i_seg % width_n_seg == 0:
         # Got to the begining of the next line
         seg_bounds[1] = [w_start, w_start + width_seg]
         seg_bounds[0][0] += height_seg
-        seg_bounds[0][1] += height_seg
+        seg_bounds[0][1] = min(seg_bounds[0][1] + height_seg, h_end)
 
         if i_seg == width_n_seg * height_n_seg:
             # reset to first segment
@@ -412,19 +398,14 @@ def _send_result(comm, z_hat, worker_bounds, atom_shape):
     comm.Barrier()
 
 
-def get_true_coordinate(h0, w0, worker_bounds, worker_offset):
-    h = h0 - worker_bounds[0][0] + worker_offset[0]
-    w = w0 - worker_bounds[1][0] + worker_offset[1]
-    return (h, w)
-
-
-def shutdown(comm):
-    print("Worker{} finished".format(comm.Get_rank()))
+def shutdown(comm, verbose=0):
+    if verbose > 5:
+        print("[Worker-{:03}] clean shutdown".format(comm.Get_rank()))
     comm.Barrier()
     comm.Disconnect()
 
 
 if __name__ == "__main__":
     comm = MPI.Comm.Get_parent()
-    dicod_worker(comm)
-    shutdown(comm)
+    verbose = dicod_worker(comm)
+    shutdown(comm, verbose)
