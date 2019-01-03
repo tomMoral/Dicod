@@ -13,5 +13,5 @@ SIZE_MSG = 4
 
 
 # Output control
-GLOBAL_OUTPUT_TAG = "\r[DICOD-{}] "
-WORKER_OUTPUT_TAG = "\r[DICOD:{}:Worker-{:<3}] "
+GLOBAL_OUTPUT_TAG = "\r[{}:DICOD-{}] "
+WORKER_OUTPUT_TAG = "\r[{}:DICOD:Worker-{:<3}] "

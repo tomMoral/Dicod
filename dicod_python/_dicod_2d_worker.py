@@ -47,9 +47,8 @@ class DICODWorker:
         height_atom, width_atom = atom_shape
         h_world, w_world = self.worker_topology
 
-        if self.rank == 0 and params['verbose'] > 0:
-            print("DEBUG - Start dicod with {} workers and strategy '{}'"
-                  .format(self.n_jobs, self.strategy))
+        self.info("Start DICOD with {} workers and strategy '{}'", self.n_jobs,
+                  self.strategy, global_msg=True)
 
         self.workers_segments = Segmentation(
             self.worker_topology, signal_shape=params['valid_shape'])
@@ -158,8 +157,7 @@ class DICODWorker:
         # if flags.INTERACTIVE_PROCESSES:
         #     import ipdb; ipdb.set_trace()  # noqa: E702
         for ii in range(self.max_iter):
-            if self.rank == 0:
-                self.progress(ii)
+            self.progress(ii)
 
             self._process_messages()
 
@@ -249,21 +247,33 @@ class DICODWorker:
         return True
 
     def progress(self, ii):
-        if self.verbose > 0 and ii % 100 == 0:
-            msg_fmt = csts.GLOBAL_OUTPUT_TAG + "progress : {:7.2%}"
-            print(msg_fmt.format(self.n_jobs, ii / self.max_iter), end="",
-                  flush=True)
+        self._log("progress : {:7.2%}", ii / self.max_iter, level=1,
+                  level_name="PROGRESS", global_msg=True, endline=False)
 
-    def _log(self, msg, *args, level=0, level_name="None"):
+    def _log(self, msg, *fmt_args, level=0, level_name="None",
+             global_msg=False, endline=True):
         if self.verbose >= level:
-            msg_fmt = csts.WORKER_OUTPUT_TAG + msg
-            print(msg_fmt.format(level_name, self.rank, *args))
+            if global_msg:
+                if self.rank != 0:
+                    return
+                msg_fmt = csts.GLOBAL_OUTPUT_TAG + msg
+                identity = self.n_jobs
+            else:
+                msg_fmt = csts.WORKER_OUTPUT_TAG + msg
+                identity = self.rank
+            if endline:
+                kwargs = {}
+            else:
+                kwargs = {'end': '', 'flush': True}
+            print(msg_fmt.format(level_name, identity, *fmt_args), **kwargs)
 
-    def info(self, msg, *args):
-        self._log(msg, *args, level=1, level_name="INFO")
+    def info(self, msg, *args, global_msg=False):
+        self._log(msg, *args, level=1, level_name="INFO",
+                  global_msg=global_msg)
 
-    def debug(self, msg, *args):
-        self._log(msg, *args, level=5, level_name="DEBUG")
+    def debug(self, msg, *args, global_msg=False):
+        self._log(msg, *args, level=5, level_name="DEBUG",
+                  global_msg=global_msg)
 
     def _init_cd_variables(self):
 
