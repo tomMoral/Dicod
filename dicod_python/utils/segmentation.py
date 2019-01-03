@@ -118,6 +118,20 @@ class Segmentation:
         return (Ellipsis,) + tuple([slice(s, e) for s, e in seg_bounds])
 
     def find_segment(self, pt):
+        """Find the segment containing the given pt, or the closest one if pt
+        is out of range.
+
+        Parameter
+        ---------
+        pt : list of int
+            Coordinate of the given update.
+
+        Return
+        ------
+        i_seg : int
+            Indices of the segment containing pt or the closest one in
+            manhattan distance if pt is out of range.
+        """
         i_seg = 0
         axis_offset = self.effective_n_seg
         for x, n_seg_axis, seg_size_axis, (axis_start, axis_end) in zip(
@@ -152,6 +166,11 @@ class Segmentation:
         """
         if isinstance(radius, int):
             radius = [radius] * len(pt)
+
+        for r, size_axis in zip(radius, self.seg_shape):
+            if r >= size_axis:
+                raise ValueError("Interference radius is too large compared "
+                                 "to the segmentation size.")
 
         i_seg = self.find_segment(pt)
         seg_bounds = self.get_seg_bounds(i_seg)
@@ -233,6 +252,8 @@ class Segmentation:
         return self._n_active_segments > 0
 
     def test_active_segment(self, dz, tol):
+        """Test the state of active segments is coherent with dz and tol
+        """
         for i in range(self.effective_n_seg):
             if not self.is_active_segment(i):
                 seg_slice = self.get_seg_slice(i)

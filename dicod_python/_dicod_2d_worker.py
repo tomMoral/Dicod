@@ -154,8 +154,8 @@ class DICODWorker:
                                        width_valid_worker))
 
         t_start = time.time()
-        # if flags.INTERACTIVE_PROCESSES:
-        #     import ipdb; ipdb.set_trace()  # noqa: E702
+        if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
+            import ipdb; ipdb.set_trace()  # noqa: E702
         for ii in range(self.max_iter):
             self.progress(ii)
 
@@ -195,6 +195,8 @@ class DICODWorker:
                     msg = np.array([k0, *pt_global, dz], 'd')
                     self.notify_neighbors(msg, workers)
 
+                    # Debug utility to check that the inactive segments have no
+                    # coefficients to update over the tolerance.
                     if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
                         self.local_segments.test_active_segments(
                             self.dz_opt, self.tol)
@@ -242,8 +244,8 @@ class DICODWorker:
         for req in self.messages:
             if not req.Test():
                 return False
-        if MPI.COMM_WORLD.Iprobe():
-            return False
+            if MPI.COMM_WORLD.Iprobe():
+                return False
         return True
 
     def progress(self, ii):
