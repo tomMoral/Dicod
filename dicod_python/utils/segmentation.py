@@ -117,6 +117,10 @@ class Segmentation:
         seg_bounds = self.get_seg_bounds(i_seg)
         return (Ellipsis,) + tuple([slice(s, e) for s, e in seg_bounds])
 
+    def get_seg_shape(self, i_seg):
+        seg_bounds = self.get_seg_bounds(i_seg)
+        return tuple([e - s for s, e in seg_bounds])
+
     def find_segment(self, pt):
         """Find the segment containing the given pt, or the closest one if pt
         is out of range.

@@ -81,8 +81,9 @@ class DICODWorker:
         if self.n_seg == 'auto':
             self.n_seg = []
             for axis_size, atom_size in zip(
-                    self.workers_segments.signal_shape, atom_shape):
-                self.n_seg.append(max(axis_size // (2 * atom_size - 1), 1))
+                    self.workers_segments.get_seg_shape(self.rank),
+                    atom_shape):
+                self.n_seg.append(max(axis_size // (4 * atom_size - 1), 1))
         self.local_segments = Segmentation(
             self.n_seg, outer_bounds=worker_bounds)
 
