@@ -1,8 +1,9 @@
 import numpy as np
 
-from dicod_python.utils import cost
+from dicod_python.utils.csc import cost
 from dicod_python.coordinate_descent_2d import _init_beta
-from dicod_python.coordinate_descent_2d import _get_seg_info
+from dicod_python.coordinate_descent_2d import get_seg_info
+from dicod_python.coordinate_descent_2d import get_seg_bounds
 from dicod_python.coordinate_descent_2d import _is_interfering_update
 
 
@@ -32,36 +33,50 @@ def test_is_interfering_update():
         assert down == down_truth, "bad interference detection downstream"
 
 
-def test_get_seg_info():
+def test_seg_info():
     height_valid, width_valid = 53, 201
-    atom_shape = 10, 37
+    atom_shape = 3, 7
 
-    seg_shape, grid_seg, effective_n_seg = _get_seg_info(
+    seg_shape, grid_seg, effective_n_seg = get_seg_info(
         'auto', height_valid, width_valid, atom_shape)
     height_n_seg, width_n_seg = grid_seg
     height_seg, width_seg = seg_shape
 
+    worker_bounds = ((0, height_valid), (0, width_valid))
+
     assert effective_n_seg == height_n_seg * width_n_seg
 
-    # Assert that no segment is empty and that all coordinates are covered
-    assert (height_n_seg - 1) * height_seg < height_valid - 1
-    assert height_valid - 1 < height_n_seg * height_seg
-    assert (width_n_seg - 1) * width_seg < width_valid - 1
-    assert width_valid - 1 < width_n_seg * width_seg
+    # Assert that all coordinates are covered
+    sig = np.zeros((height_valid, width_valid))
+    for i_seg in range(effective_n_seg):
+        seg_bounds = get_seg_bounds(i_seg, grid_seg, seg_shape, worker_bounds)
+        seg_slice = tuple([slice(s, e) for s, e in seg_bounds])
+        sig[seg_slice] += 1
 
-    for n_seg in range(1, 100):
-        seg_shape, grid_seg, effective_n_seg = _get_seg_info(
+    assert (sig == 1).all()
+
+    assert height_valid >= height_n_seg * height_seg
+    assert width_valid >= width_n_seg * width_seg
+
+    for n_seg in range(1, 61, 3):
+        seg_shape, grid_seg, effective_n_seg = get_seg_info(
             n_seg, height_valid, width_valid, atom_shape)
         height_n_seg, width_n_seg = grid_seg
         height_seg, width_seg = seg_shape
 
         assert effective_n_seg == height_n_seg * width_n_seg
 
-        # Assert that no segment is empty and that all coordinates are covered
-        assert (height_n_seg - 1) * height_seg <= height_valid - 1
-        assert height_valid - 1 < height_n_seg * height_seg
-        assert (width_n_seg - 1) * width_seg <= width_valid - 1
-        assert width_valid - 1 < width_n_seg * width_seg
+        sig *= 0
+        for i_seg in range(effective_n_seg):
+            seg_bounds = get_seg_bounds(i_seg, grid_seg, seg_shape,
+                                        worker_bounds)
+            seg_slice = tuple([slice(s, e) for s, e in seg_bounds])
+            sig[seg_slice] += 1
+
+        assert (sig == 1).all()
+
+        assert height_valid >= height_n_seg * height_seg
+        assert width_valid >= width_n_seg * width_seg
 
 
 def test_init_beta():
@@ -81,7 +96,7 @@ def test_init_beta():
     # z = rng.randn(n_atoms, height_valid, width_valid)
 
     lmbd = 1
-    beta, dz_opt = _init_beta(X, z, D, lmbd, {}, False)
+    beta, dz_opt = _init_beta(X, D, lmbd, z_i=z)
 
     assert beta.shape == z.shape
     assert dz_opt.shape == z.shape
@@ -94,7 +109,7 @@ def test_init_beta():
         # Check that the optimal value is independent of the current value
         z_old = z[k, h, w]
         z[k, h, w] = rng.randn()
-        beta_new, _ = _init_beta(X, z, D, lmbd, {}, False)
+        beta_new, _ = _init_beta(X, D, lmbd, z_i=z)
         assert np.isclose(beta_new[k, h, w], beta[k, h, w])
 
         # Check that the chosen value is optimal

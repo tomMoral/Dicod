@@ -2,9 +2,11 @@ import numpy as np
 from scipy.signal import fftconvolve
 
 
-from .utils import soft_thresholding, reconstruct
-from .utils import compute_DtD, compute_norm_atoms
+from .utils import debug_flags as flags
+from .utils.segmentation import Segmentation
 from .utils import check_random_state, NEIGHBOR_POS
+from .utils.csc import soft_thresholding, reconstruct
+from .utils.csc import compute_DtD, compute_norm_atoms
 
 
 def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
@@ -54,11 +56,18 @@ def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
 
     height_valid = height - height_atom + 1
     width_valid = width - width_atom + 1
+    valid_shape = (height_valid, width_valid)
     n_coordinates = n_atoms * height_valid * width_valid
 
     # compute sizes for the segments for LGCD
-    seg_shape, grid_seg, n_seg = _get_seg_info(
-        n_seg, height_valid, width_valid, atom_shape)
+    if n_seg == 'auto':
+        n_seg = []
+        for axis_size, atom_size in zip(valid_shape, atom_shape):
+            n_seg.append(max(axis_size // (2 * atom_size - 1), 1))
+    segments = Segmentation(n_seg, signal_shape=valid_shape)
+
+    # seg_shape, grid_seg, n_seg = get_seg_info(
+    #     n_seg, height_valid, width_valid, atom_shape)
 
     # Pre-compute some quantities
     constants = {}
@@ -66,64 +75,65 @@ def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
     constants['DtD'] = compute_DtD(D)
 
     # Initialization of the algorithm variables
-    i_seg = 0
-    accumulator = n_seg
-    k0, h0, w0 = 0, -1, -1
-    active_segments = np.array([True] * n_seg)
-    seg_bounds = [[0, seg_shape[0]], [0, seg_shape[1]]]
+    i_seg = -1
     z_hat = np.zeros((n_atoms, height_valid, width_valid))
 
-    beta, dz_opt = _init_beta(X_i, z_hat, D, lmbd, constants,
-                              z_positive)
+    beta, dz_opt = _init_beta(X_i, D, lmbd, z_i=None, constants=constants,
+                              z_positive=z_positive)
     for ii in range(max_iter):
-        if ii % 100 == 0 and verbose > 0:
+        if ii % 1000 == 0 and verbose > 0:
             print("\rCD {:7.2%}".format(ii / max_iter), end='', flush=True)
-        k0, h0, w0, dz = _select_coordinate(dz_opt, seg_bounds,
-                                            active_segments[i_seg],
-                                            strategy=strategy,
-                                            random_state=random_state)
 
-        if strategy == 'random':
-            # accumulate on all coordinates from the stopping criterion
-            if ii % n_coordinates == 0:
-                accumulator = 0
-            accumulator = max(accumulator, abs(dz))
+        i_seg = segments.increment_seg(i_seg)
+        seg_bounds = segments.get_seg_bounds(i_seg)
+        if segments.is_active_segment(i_seg):
+            k0, pt0, dz = _select_coordinate(dz_opt, seg_bounds,
+                                             strategy=strategy,
+                                             random_state=random_state)
+        else:
+            seg_slice = segments.get_seg_slice(i_seg)
+            assert np.all(abs(dz_opt[seg_slice]) <= tol), i_seg
+            k0, pt0, dz = None, None, 0
 
         # Update the selected coordinate and beta, only if the update is
         # greater than the convergence tolerance.
         if abs(dz) > tol:
             # update the selected coordinate
-            z_hat[k0, h0, w0] += dz
+            z_hat[(k0,) + pt0] += dz
 
             # update beta
-            beta, dz_opt = _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D,
+            beta, dz_opt = _update_beta(k0, pt0, dz, beta, dz_opt, z_hat, D,
                                         lmbd, constants, z_positive)
-            _update_active_segment(h0, w0, i_seg, active_segments, accumulator,
-                                   seg_bounds, grid_seg, atom_shape)
+            touched_segs = segments.get_touched_segments(
+                pt=pt0, radius=atom_shape)
+            n_changed_status = segments.set_active_segments(touched_segs)
 
-        elif active_segments[i_seg] and strategy == "greedy":
-            accumulator -= 1
-            active_segments[i_seg] = False
+            if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
+                segments.test_active_segment(dz_opt, tol)
+
+        elif strategy == "greedy":
+            segments.set_inactive_segments(i_seg)
 
         if timing:
             # TODO: logging stuff
             pass
 
         # check stopping criterion
-        if _check_convergence(accumulator, tol, ii, n_coordinates, strategy):
+        if _check_convergence(segments, tol, ii, dz_opt, n_coordinates,
+                              strategy):
+            assert np.all(abs(dz_opt) <= tol)
             if verbose > 0:
                 print("[Coordinate descent converged after {} iterations"
                       .format(ii + 1))
-            break
 
-        i_seg, seg_bounds = _next_seg(i_seg, seg_bounds, grid_seg, seg_shape)
+            break
 
     if verbose > 0:
         print("\r CD done   ")
     return z_hat
 
 
-def _get_seg_info(n_seg, height_valid, width_valid, atom_shape):
+def get_seg_info(n_seg, height_valid, width_valid, atom_shape):
     """Compute the number of segment and their shapes for LGCD.
 
     Parameters
@@ -152,8 +162,8 @@ def _get_seg_info(n_seg, height_valid, width_valid, atom_shape):
         height_seg = max(height_valid // n_seg, 1)
         width_seg = max(width_valid // n_seg, 1)
 
-    height_n_seg = height_valid // height_seg + (height_valid % height_seg != 0)
-    width_n_seg = width_valid // width_seg + (width_valid % width_seg != 0)
+    height_n_seg = height_valid // height_seg
+    width_n_seg = width_valid // width_seg
 
     grid_seg = (height_n_seg, width_n_seg)
     seg_shape = (height_seg, width_seg)
@@ -161,7 +171,7 @@ def _get_seg_info(n_seg, height_valid, width_valid, atom_shape):
     return seg_shape, grid_seg, width_n_seg * height_n_seg
 
 
-def _init_beta(X_i, z_i, D, lmbd, constants, z_positive):
+def _init_beta(X_i, D, lmbd, z_i=None, constants={}, z_positive=False):
     """Init beta with the gradient in the current point 0
 
     Parameters
@@ -184,8 +194,7 @@ def _init_beta(X_i, z_i, D, lmbd, constants, z_positive):
     else:
         norm_atoms = compute_norm_atoms(D)
 
-    nnz = z_i.nonzero()
-    if len(nnz[0]) > 0:
+    if z_i is not None and abs(z_i).sum() > 0:
         residual = reconstruct(z_i, D) - X_i
     else:
         residual = -X_i
@@ -195,16 +204,19 @@ def _init_beta(X_i, z_i, D, lmbd, constants, z_positive):
           for dkp, res_p in zip(dk, residual)]
          for dk in D[:, :, ::-1, ::-1]], axis=1)
 
-    for k, h, w in zip(*nnz):
-        beta[k, h, w] -= z_i[k, h, w] * norm_atoms[k]
+    if z_i is not None:
+        for k, h, w in zip(*z_i.nonzero()):
+            beta[k, h, w] -= z_i[k, h, w] * norm_atoms[k]
 
-    dz_opt = soft_thresholding(-beta, lmbd, positive=z_positive) / norm_atoms \
-        - z_i
+    dz_opt = soft_thresholding(-beta, lmbd, positive=z_positive) / norm_atoms
+
+    if z_i is not None:
+        dz_opt -= z_i
 
     return beta, dz_opt
 
 
-def _select_coordinate(dz_opt, seg_bounds, active_seg, strategy='greedy',
+def _select_coordinate(dz_opt, seg_bounds, strategy='greedy',
                        random_state=None):
     """Pick a coordinate to update
 
@@ -215,9 +227,6 @@ def _select_coordinate(dz_opt, seg_bounds, active_seg, strategy='greedy',
         coordinate.
     seg_bounds : ((int, int), (int, int))
         Boundaries of the current segment
-    active_seg : boolean
-        Encode the fact that the segment has a chance to contain a value over
-        the tolerance of the algorithm or not.
     strategy : str in { 'greedy' | 'random' }
         Coordinate selection scheme for the coordinate descent. If set to
         'greedy', the coordinate with the largest value for dz_opt is selected.
@@ -236,33 +245,30 @@ def _select_coordinate(dz_opt, seg_bounds, active_seg, strategy='greedy',
     elif strategy == 'greedy':
         start_height_seg, end_height_seg = seg_bounds[0]
         start_width_seg, end_width_seg = seg_bounds[1]
-        if active_seg:
-            dz_opt_seg = dz_opt[:, start_height_seg:end_height_seg,
-                                start_width_seg:end_width_seg]
-            i0 = abs(dz_opt_seg).argmax()
-            k0, h0, w0 = np.unravel_index(i0, dz_opt_seg.shape)
-            h0 += start_height_seg
-            w0 += start_width_seg
-            dz = dz_opt[k0, h0, w0]
-        else:
-            k0, h0, w0, dz = None, None, None, 0
+        dz_opt_seg = dz_opt[:, start_height_seg:end_height_seg,
+                            start_width_seg:end_width_seg]
+        i0 = abs(dz_opt_seg).argmax()
+        k0, h0, w0 = np.unravel_index(i0, dz_opt_seg.shape)
+        h0 += start_height_seg
+        w0 += start_width_seg
+        dz = dz_opt[k0, h0, w0]
     else:
         raise ValueError("'The coordinate selection strategy should be in "
                          "{'greedy' | 'random' | 'cyclic'}. Got '{}'."
                          .format(strategy))
-    return k0, h0, w0, dz
+    return k0, (h0, w0), dz
 
 
-def _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D, lmbd, constants,
+def _update_beta(k0, pt0, dz, beta, dz_opt, z_hat, D, lmbd, constants,
                  z_positive, coordinate_exist=True):
     """Update the optimal value for the coordinate updates.
 
     Parameters
     ----------
+    k0, pt0 : int, (int, int)
+        Indices of the coordinate updated.
     dz : float
         Value of the update.
-    k0, h0, w0 : int
-        Indices of the coordinate updated.
     beta, dz_opt : ndarray, shape (n_atoms, height_valid, width_valid)
         Auxillary variables holding the optimal value for the coordinate update
     z_hat : ndarray, shape (n_atoms, height_valid, width_valid)
@@ -297,6 +303,7 @@ def _update_beta(dz, k0, h0, w0, beta, dz_opt, z_hat, D, lmbd, constants,
         norm_atoms = compute_norm_atoms(D)
 
     # define the bounds for the beta update
+    h0, w0 = pt0
     start_height_up = max(0, h0 - height_atom + 1)
     end_height_up = min(h0 + height_atom, height_valid)
     start_width_up = max(0, w0 - width_atom + 1)
@@ -394,46 +401,21 @@ def get_interfering_neighbors(h0, w0, i_seg, seg_bounds, grid_shape,
     return interfering_neighbors
 
 
-def _update_active_segment(h0, w0, i_seg, active_segments, accumulator,
-                           seg_bounds, grid_shape, atom_shape):
-    """Update the active segment if the current update interfered with it.
-
-    Parameters
-    ----------
-    h0, w0 : int
-        Indices of the current update.
-    i_seg : int
-        Indice of the segment being updated.
-    active_segments : list of boolean
-        array encoding whether a segment is active or not.
-    accumulator : int
-        Total number of active segments
-    seg_bounds : ((int, int), (int, int))
-        Boundaries of the current segment
-    grid_shape : (int, int)
-        Size of the grid of segments.
-    atom_shape : (int, int)
-        Shape of the atoms in the dictionary.
-    """
-    interfering_neighbors = get_interfering_neighbors(
-        h0, w0, i_seg, seg_bounds, grid_shape, atom_shape)
-    for i_neighbor in interfering_neighbors:
-        if i_neighbor is not None and i_neighbor > 0:
-            accumulator += not active_segments[i_neighbor]
-            active_segments[i_neighbor] = True
-
-
-def _check_convergence(accumulator, tol, iteration, n_coordinates, strategy):
+def _check_convergence(segments, tol, iteration, dz_opt, n_coordinates,
+                       strategy):
     """Check convergence for the coordinate descent algorithm
 
     Parameters
     ----------
-    accumulator : int
+    segments : Segmentation
         Number of active segment at this iteration.
     tol : float
         Tolerance for the minimal update size in this algorithm.
     iteration : int
         Current iteration number
+    dz_opt : ndarray, shape (n_atoms, height_valid, width_valid)
+        Difference between the current value and the optimal value for each
+        coordinate.
     n_coordinates : int
         Number of coordinate in the considered problem.
     strategy : str in { 'greedy' | 'random' }
@@ -443,50 +425,59 @@ def _check_convergence(accumulator, tol, iteration, n_coordinates, strategy):
     """
     # check stopping criterion
     if strategy == 'greedy':
-        if accumulator == 0:
+        if not segments.exist_active_segment():
+            if flags.CHECK_ACTIVE_SEGMENTS:
+                assert np.all(abs(dz_opt) <= tol)
             return True
+        return False
     else:
         # only check at the last coordinate
-        if (iteration + 1) % n_coordinates == 0 and accumulator <= tol:
-            return True
+        if (iteration + 1) % n_coordinates == 0:
+            return np.all(abs(dz_opt) <= tol)
+        return False
 
 
-def _next_seg(i_seg, seg_bounds, grid_seg, seg_shape):
-    """Increment the current segment and update the segment bounds
+def get_seg_bounds(i_seg, grid_seg, seg_shape, worker_bounds=None):
+    """Get the bound of a given segment
 
     Parameters
     ----------
     i_seg : int
         Current segment indice
-    seg_bounds : ((int, int), (int, int))
-        Boundaries of the current segment
     grid_seg : (int, int)
         number of segments on each dimension
     seg_shape : (int, int)
         Size of each segment
+    worker_bounds : ((int, int), (int, int))
+        Boundaries of the worker segment
 
     Return
     ------
-    i_seg : int, update segment indice
-    seg_bounds : ((int, int), (int, int)), updated segment bounds
+    seg_bounds : ((int, int), (int, int)), segment bounds
     """
 
     height_n_seg, width_n_seg = grid_seg
     height_seg, width_seg = seg_shape
 
-    # increment to next segment
-    i_seg += 1
-    seg_bounds[1][0] += width_seg
-    seg_bounds[1][1] += width_seg
+    if worker_bounds is None:
+        h_start, h_end = 0, height_n_seg * height_seg
+        w_start, w_end = 0, width_n_seg * width_seg
+    else:
+        (h_start, h_end), (w_start, w_end) = worker_bounds
 
-    if i_seg % width_n_seg == 0:
-        # Got to the begining of the next line
-        seg_bounds[1] = [0, width_seg]
-        seg_bounds[0][0] += height_seg
-        seg_bounds[0][1] += height_seg
+    # Compute cartesian coordinate of the segment
+    w_seg = i_seg % width_n_seg
+    h_seg = i_seg // width_n_seg
 
-        if i_seg == width_n_seg * height_n_seg:
-            # reset to first segment
-            i_seg = 0
-            seg_bounds = [[0, height_seg], [0, width_seg]]
-    return i_seg, seg_bounds
+    # Compute the bounds of the current segment
+    seg_bounds = np.array(
+        [[h_seg * height_seg, (h_seg+1) * height_seg],
+         [w_seg * width_seg, (w_seg+1) * width_seg]])
+    seg_bounds += [[h_start], [w_start]]
+
+    # the last segment in each direction can be larger
+    if (h_seg + 1) % height_n_seg == 0:
+        seg_bounds[0][1] = h_end
+    if (w_seg + 1) % width_n_seg == 0:
+        seg_bounds[1][1] = w_end
+    return seg_bounds
