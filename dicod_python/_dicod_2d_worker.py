@@ -158,7 +158,7 @@ class DICODWorker:
         if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
             import ipdb; ipdb.set_trace()  # noqa: E702
         for ii in range(self.max_iter):
-            self.progress(ii)
+            self.progress(ii, max_ii=self.max_iter, unit="iterations")
 
             self._process_messages()
 
@@ -249,8 +249,8 @@ class DICODWorker:
                 return False
         return True
 
-    def progress(self, ii):
-        self._log("progress : {:7.2%}", ii / self.max_iter, level=1,
+    def progress(self, ii, max_ii, unit):
+        self._log("progress : {:7.2%} {}", ii / max_ii, unit, level=1,
                   level_name="PROGRESS", global_msg=True, endline=False)
 
     def _log(self, msg, *fmt_args, level=0, level_name="None",
@@ -459,6 +459,9 @@ class DICODWorker:
         while not (stop or wake_up):
             time.sleep(.001)
             wake_up, stop = self._process_messages(paused_worker=True)
+
+        self.progress(self.n_paused_worker, max=self.n_jobs,
+                      unit="done workers")
 
         if self.rank == 0 and stop:
             for i_worker in range(1, self.n_jobs):
