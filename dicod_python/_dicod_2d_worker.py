@@ -460,7 +460,7 @@ class DICODWorker:
             time.sleep(.001)
             wake_up, stop = self._process_messages(paused_worker=True)
 
-        self.progress(self.n_paused_worker, max=self.n_jobs,
+        self.progress(self.n_paused_worker, max_ii=self.n_jobs,
                       unit="done workers")
 
         if self.rank == 0 and stop:
