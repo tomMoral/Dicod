@@ -155,6 +155,7 @@ class DICODWorker:
                                        width_valid_worker))
 
         t_start = time.time()
+        diverging = False
         if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
             import ipdb; ipdb.set_trace()  # noqa: E702
         for ii in range(self.max_iter):
@@ -213,6 +214,12 @@ class DICODWorker:
             elif self.strategy == "greedy":
                 self.local_segments.set_inactive_segments(i_seg)
 
+            if abs(dz) >= 1e2:
+                self.info("diverging worker")
+                self.wait_status_changed(status=csts.STATUS_FINISHED)
+                diverging = True
+                break
+
             if self.timing:
                 # TODO: logging stuff
                 pass
@@ -221,20 +228,18 @@ class DICODWorker:
             if _check_convergence(self.local_segments, self.tol, ii,
                                   self.dz_opt, n_coordinates, self.strategy):
                 if self.check_no_transitting_message():
-                    wake_up, stop = self.wait_for_wakeup_or_stop()
-                    if stop:
+                    status = self.wait_status_changed()
+                    if status == csts.STATUS_STOP:
                         self.info("LGCD converged after {} iterations", ii + 1)
                         break
-                else:
-                    time.sleep(.001)
 
         else:
-            self.notify_worker_status(csts.TAG_PAUSED_WORKER)
             self.info("Reach maximal iteration. Max of dz_opt is {}.",
                       abs(self.dz_opt).max())
+            self.wait_status_changed(status=csts.STATUS_FINISHED)
 
         self.synchronize_workers()
-        assert not MPI.COMM_WORLD.Iprobe()
+        assert diverging or not MPI.COMM_WORLD.Iprobe()
         runtime = time.time() - t_start
         self.send_result(ii + 1, runtime)
         self.shutdown()
@@ -250,6 +255,8 @@ class DICODWorker:
         return True
 
     def progress(self, ii, max_ii, unit):
+        if max_ii > 10000 and (ii % 100) != 0:
+            return
         self._log("progress : {:7.2%} {}", ii / max_ii, unit, level=1,
                   level_name="PROGRESS", global_msg=True, endline=False)
 
@@ -268,6 +275,7 @@ class DICODWorker:
                 kwargs = {}
             else:
                 kwargs = {'end': '', 'flush': True}
+            msg_fmt = msg_fmt.ljust(80)
             print(msg_fmt.format(level_name, identity, *fmt_args), **kwargs)
 
     def info(self, msg, *args, global_msg=False):
@@ -319,28 +327,23 @@ class DICODWorker:
             raise NotImplementedError("Backend {} is not implemented"
                                       .format(self._backend))
 
-    def _process_messages(self, paused_worker=False):
+    def _process_messages(self, worker_status=csts.STATUS_RUNNING):
 
-        status = MPI.Status()
-        wake_up, stop = False, False
-        while MPI.COMM_WORLD.Iprobe(status=status):
-            src = status.source
-            tag = status.tag
+        mpi_status = MPI.Status()
+        while MPI.COMM_WORLD.Iprobe(status=mpi_status):
+            src = mpi_status.source
+            tag = mpi_status.tag
             if tag == csts.TAG_UPDATE_BETA:
-                if paused_worker:
-                    if self.rank != 0:
-                        self.notify_worker_status(csts.TAG_WAKE_UP_WORKER,
-                                                  wait=True)
-                    else:
-                        self.n_paused_worker -= 1
-                    paused_worker = False
-                wake_up = True
+                if worker_status == csts.STATUS_PAUSED:
+                    self.notify_worker_status(csts.TAG_RUNNING_WORKER,
+                                              wait=True)
+                    worker_status = csts.STATUS_RUNNING
             elif tag == csts.TAG_STOP:
-                stop = True
+                worker_status = csts.STATUS_STOP
             elif tag == csts.TAG_PAUSED_WORKER:
                 self.n_paused_worker += 1
                 assert self.n_paused_worker <= self.n_jobs
-            elif tag == csts.TAG_WAKE_UP_WORKER:
+            elif tag == csts.TAG_RUNNING_WORKER:
                 self.n_paused_worker -= 1
                 assert self.n_paused_worker >= 0
 
@@ -350,9 +353,10 @@ class DICODWorker:
 
             if tag == csts.TAG_UPDATE_BETA:
                 self._message_update_beta(msg)
-            status = MPI.Status()
 
-        return wake_up, (self.n_paused_worker == self.n_jobs or stop)
+        if self.n_paused_worker == self.n_jobs:
+            worker_status = csts.STATUS_STOP
+        return worker_status
 
     def _message_update_beta(self, msg):
         k0, h0, w0, dz = msg
@@ -441,34 +445,44 @@ class DICODWorker:
         comm.Disconnect()
 
     def notify_worker_status(self, tag, i_worker=0, wait=False):
+        # handle the messages from Worker0 to himself.
+        if self.rank == 0 and i_worker == 0:
+            if tag == csts.TAG_PAUSED_WORKER:
+                self.n_paused_worker += 1
+                assert self.n_paused_worker <= self.n_jobs
+            elif tag == csts.TAG_RUNNING_WORKER:
+                self.n_paused_worker -= 1
+                assert self.n_paused_worker >= 0
+            else:
+                raise ValueError("Got tag {}".format(tag))
+            return
+
+        # Else send the message to the required destination
         msg = np.empty(csts.SIZE_MSG, 'd')
         if wait:
             MPI.COMM_WORLD.Ssend([msg, MPI.DOUBLE], i_worker, tag=tag)
         else:
             MPI.COMM_WORLD.Isend([msg, MPI.DOUBLE], i_worker, tag=tag)
 
-    def wait_for_wakeup_or_stop(self):
-        if self.rank != 0:
-            self.notify_worker_status(csts.TAG_PAUSED_WORKER)
-        else:
-            self.n_paused_worker += 1
-        self.debug("paused_worker")
+    def wait_status_changed(self, status=csts.STATUS_PAUSED):
+        self.notify_worker_status(csts.TAG_PAUSED_WORKER)
+        self.debug("paused worker")
 
         # Wait for all sent message to be processed
-        wake_up, stop = False, False
-        while not (stop or wake_up):
+        count = 0
+        while status not in [csts.STATUS_RUNNING, csts.STATUS_STOP]:
             time.sleep(.001)
-            wake_up, stop = self._process_messages(paused_worker=True)
+            status = self._process_messages(worker_status=status)
+            if (count % 500) == 0:
+                self.progress(self.n_paused_worker, max_ii=self.n_jobs,
+                              unit="done workers")
 
-        self.progress(self.n_paused_worker, max_ii=self.n_jobs,
-                      unit="done workers")
-
-        if self.rank == 0 and stop:
+        if self.rank == 0 and status == csts.STATUS_STOP:
             for i_worker in range(1, self.n_jobs):
                 self.notify_worker_status(csts.TAG_STOP, i_worker, wait=True)
-        elif not stop:
+        elif status == csts.STATUS_RUNNING:
             self.debug("wake up")
-        return wake_up, stop
+        return status
 
 
 if __name__ == "__main__":
@@ -476,3 +490,4 @@ if __name__ == "__main__":
     dicod.run()
     # verbose = dicod_worker(comm)
     # shutdown(comm, verbose)
+
