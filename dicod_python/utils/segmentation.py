@@ -197,7 +197,7 @@ class Segmentation:
 
         n_changed_status = 0
         for i_seg in indices:
-            n_changed_status -= self._active_segments[i_seg]
+            n_changed_status += self._active_segments[i_seg]
             self._active_segments[i_seg] = False
 
         self._n_active_segments -= n_changed_status
