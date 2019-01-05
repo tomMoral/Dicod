@@ -17,6 +17,7 @@ class Segmentation:
 
     def __init__(self, n_seg, signal_shape=None, outer_bounds=None):
 
+        # Get the shape of the signal from signal_shape or outer_bounds
         if outer_bounds is not None:
             signal_shape_ = [v[0] for v in np.diff(outer_bounds, axis=1)]
             assert signal_shape is None or signal_shape == signal_shape_, (
@@ -34,64 +35,37 @@ class Segmentation:
         self.signal_shape = signal_shape
         self.outer_bounds = outer_bounds
 
-        if isinstance(n_seg, int):
-            n_seg = [n_seg] * len(signal_shape)
-
         # compute size of each segments
-        (self.seg_shape, self.n_segs,
-         self.effective_n_seg) = self.get_seg_info(n_seg, self.signal_shape)
+        self.compute_seg_info(n_seg)
 
+        # Initializes variable to keep track of active segments
         self._n_active_segments = self.effective_n_seg
         self._active_segments = [True] * self.effective_n_seg
 
-    @staticmethod
-    def get_seg_info(n_seg, signal_shape):
-        """Compute the number of segment and their shapes for LGCD.
-
-        Parameters
-        ----------
-        n_seg : int or list of int or { 'auto' }
-            Number of segments to use for each dimension. If set to 'auto' use
-            segments of twice the size of the dictionary.
-        signal_shape : list of int
-            Size of the considered signal.
-
-        Return
-        ------
-        seg_shape : list of int, shape of each segment.
-        grid_seg : list of int, number of segments on each dimension
-        n_seg :  int, total number of segment used
+    def compute_seg_info(self, n_seg):
+        """Compute the number of segment and their shapes for each axis.
         """
 
         if isinstance(n_seg, int):
-            n_seg = [n_seg] * len(signal_shape)
+            n_seg = [n_seg] * len(self.signal_shape)
 
-        effective_n_seg = 1
-        seg_shape, grid_seg = [], []
-        for size_axis, n_seg_axis in zip(signal_shape, n_seg):
+        self.effective_n_seg = 1
+        seg_shape, n_seg_per_axis = [], []
+        for size_axis, n_seg_axis in zip(self.signal_shape, n_seg):
             seg_shape.append(max(size_axis // n_seg_axis, 1))
-            grid_seg.append(size_axis // seg_shape[-1])
-            effective_n_seg *= int(grid_seg[-1])
+            n_seg_per_axis.append(size_axis // seg_shape[-1])
+            self.effective_n_seg *= int(n_seg_per_axis[-1])
 
-        return seg_shape, grid_seg, effective_n_seg
+        self.n_seg_per_axis = n_seg_per_axis
+        self.seg_shape = seg_shape
 
     def get_seg_bounds(self, i_seg):
-        """Get the bound of a given segment
-
-        Parameters
-        ----------
-        i_seg : int
-            Current segment indice
-
-        Return
-        ------
-        seg_bounds :  list (int, int), segment bounds
-        """
+        """Return a segment's boundaries."""
 
         seg_bounds = []
         axis_offset = self.effective_n_seg
         for n_seg_axis, seg_size_axis, (axis_start, axis_end) in zip(
-                self.n_segs, self.seg_shape, self.outer_bounds):
+                self.n_seg_per_axis, self.seg_shape, self.outer_bounds):
             axis_offset //= n_seg_axis
             axis_i_seg = i_seg // axis_offset
             axis_bound_start = axis_start + axis_i_seg * seg_size_axis
@@ -103,27 +77,20 @@ class Segmentation:
         return seg_bounds
 
     def get_seg_slice(self, i_seg):
-        """Get the bound of a given segment
-
-        Parameters
-        ----------
-        i_seg : int
-            Current segment indice
-
-        Return
-        ------
-        seg_bounds :  list (int, int), segment bounds
-        """
+        """Return a segment's slice"""
         seg_bounds = self.get_seg_bounds(i_seg)
         return (Ellipsis,) + tuple([slice(s, e) for s, e in seg_bounds])
 
     def get_seg_shape(self, i_seg):
+        """Return a segment's shape"""
         seg_bounds = self.get_seg_bounds(i_seg)
         return tuple([e - s for s, e in seg_bounds])
 
     def find_segment(self, pt):
-        """Find the segment containing the given pt, or the closest one if pt
-        is out of range.
+        """Find the indice of the segment containing the given point.
+
+        If the point is not contained in the segmentation boundaries, return
+        the indice of the closest segment in manhattan distance.
 
         Parameter
         ---------
@@ -139,7 +106,7 @@ class Segmentation:
         i_seg = 0
         axis_offset = self.effective_n_seg
         for x, n_seg_axis, seg_size_axis, (axis_start, axis_end) in zip(
-                pt, self.n_segs, self.seg_shape, self.outer_bounds):
+                pt, self.n_seg_per_axis, self.seg_shape, self.outer_bounds):
             axis_offset //= n_seg_axis
             axis_i_seg = max(min((x - axis_start) // seg_size_axis,
                                  n_seg_axis - 1), 0)
@@ -182,7 +149,7 @@ class Segmentation:
         segments = [i_seg]
         axis_offset = self.effective_n_seg
         for x, r, n_seg_axis, (axis_start, axis_end) in zip(
-                pt, radius, self.n_segs, seg_bounds):
+                pt, radius, self.n_seg_per_axis, seg_bounds):
             axis_offset //= n_seg_axis
             axis_i_seg = i_seg // axis_offset
             i_seg %= axis_offset
@@ -207,17 +174,7 @@ class Segmentation:
         return self._active_segments[i_seg]
 
     def set_active_segments(self, indices):
-        """Set segment i_seg to active
-
-        Parameters
-        ----------
-        indices : int or list of int
-            Indices of the segment to activate.
-
-        Return
-        ------
-        n_changed_status : int
-            Number of segment whose status has been changed.
+        """Activate segments indices and return the number of changed status.
         """
         if isinstance(indices, int):
             indices = [indices]
@@ -226,30 +183,27 @@ class Segmentation:
         for i_seg in indices:
             n_changed_status += not self._active_segments[i_seg]
             self._active_segments[i_seg] = True
+
         self._n_active_segments += n_changed_status
+        assert self._n_active_segments <= self.effective_n_seg
+
         return n_changed_status
 
     def set_inactive_segments(self, indices):
-        """Set segment i_seg to inactive
-
-        Parameters
-        ----------
-        indices : int or list of int
-            Indices of the segment to activate.
-
-        Return
-        ------
-        is_any_segment_active : boolean
-            It is true when at least one segment is active.
+        """Deactivate segments indices and return the number of changed status.
         """
         if isinstance(indices, int):
             indices = [indices]
-        assert np.iterable(indices), indices
+
+        n_changed_status = 0
         for i_seg in indices:
-            self._n_active_segments -= self._active_segments[i_seg]
+            n_changed_status -= self._active_segments[i_seg]
             self._active_segments[i_seg] = False
 
-        return self._n_active_segments > 0
+        self._n_active_segments -= n_changed_status
+        return self._n_active_segments >= 0
+
+        return n_changed_status
 
     def exist_active_segment(self):
         """Return True if at least one segment is active."""

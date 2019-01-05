@@ -17,15 +17,20 @@ from dicod_python.coordinate_descent_2d import _init_beta, _update_beta
 
 
 class DICODWorker:
-    """Utility to move from on coordinate system to another easily
+    """Worker for DICOD, running LGCD locally and using MPI for communications
+
+    Parameters
+    ----------
+    backend: str
+        Backend used to communicate between workers. Available backends are
+        { 'mpi' }.
     """
 
     def __init__(self, backend):
-        # this function receive the parameters and the task from the master
-        # node.
         self._backend = backend
 
-        # Retrieve different constants from the base communicator
+        # Retrieve different constants from the base communicator and store
+        # then in the class.
         self.rank, self.n_jobs, params, self.D = self.get_params()
 
         self.tol = params['tol']
@@ -42,11 +47,6 @@ class DICODWorker:
         if isinstance(self.random_state, int):
             self.random_state += self.rank
 
-        height_valid, width_valid = params['valid_shape']
-        n_atoms, n_channels, *atom_shape = self.D.shape
-        height_atom, width_atom = atom_shape
-        h_world, w_world = self.worker_topology
-
         self.info("Start DICOD with {} workers and strategy '{}'", self.n_jobs,
                   self.strategy, global_msg=True)
 
@@ -54,10 +54,14 @@ class DICODWorker:
             self.worker_topology, signal_shape=params['valid_shape'])
 
         # Infer some topological information
+        h_world, w_world = self.worker_topology
         h_rank = self.rank // w_world
         w_rank = self.rank % w_world
 
         # Compute the size of the signal for this worker and the worker_bounds
+        height_valid, width_valid = params['valid_shape']
+        n_atoms, n_channels, *atom_shape = self.D.shape
+        height_atom, width_atom = atom_shape
         height_worker = height_valid // h_world
         width_worker = width_valid // w_world
         height_offset = h_rank * height_worker
@@ -83,7 +87,8 @@ class DICODWorker:
             for axis_size, atom_size in zip(
                     self.workers_segments.get_seg_shape(self.rank),
                     atom_shape):
-                self.n_seg.append(max(axis_size // (4 * atom_size - 1), 1))
+                self.n_seg.append(max(axis_size // (2 * atom_size - 1), 1))
+
         self.local_segments = Segmentation(
             self.n_seg, outer_bounds=worker_bounds)
 
@@ -165,7 +170,7 @@ class DICODWorker:
 
             i_seg = self.local_segments.increment_seg(i_seg)
             seg_bounds = self.local_segments.get_seg_bounds(i_seg)
-            if self.active_segments[i_seg]:
+            if self.local_segments.is_active_segment(i_seg):
                 k0, pt0, dz = _select_coordinate(self.dz_opt, seg_bounds,
                                                  strategy=self.strategy,
                                                  random_state=random_state)
@@ -290,7 +295,6 @@ class DICODWorker:
 
         # compute sizes for the segments for LGCD
         n_atoms, n_channels, *atom_shape = self.D.shape
-        effective_n_seg = self.local_segments.effective_n_seg
 
         # Pre-compute some quantities
         constants = {}
@@ -301,10 +305,7 @@ class DICODWorker:
         # List of all pending messages
         self.messages = []
 
-        # Initialization of the algorithm variables
-        self.accumulator = effective_n_seg
-        self.active_segments = np.array([True] * effective_n_seg)
-
+        # Initialization of the auxillary variable for LGCD
         self.beta, self.dz_opt = _init_beta(
             self.X_worker, self.D, self.lmbd, z_i=None, constants=constants,
             z_positive=self.z_positive)
