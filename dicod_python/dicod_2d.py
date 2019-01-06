@@ -175,7 +175,8 @@ def _send_task(comm, X, D, lmbd, workers_segments, params):
 
     t_init = time() - t_start
     if params['verbose'] > 0:
-        print('End initialisation - {:.4}s'.format(t_init))
+        print('\r[DICOD-{}:INFO] End initialization - {:.4}s'
+              .format(workers_segments.effective_n_seg, t_init))
     return
 
 
@@ -197,11 +198,12 @@ def _recv_result(comm, n_atoms, shape_valid, workers_segments, verbose=0):
     stats = comm.gather(None, root=MPI.ROOT)
     iterations = np.sum(stats, axis=0)[0]
     runtime = np.max(stats, axis=0)[1]
-    print("[DICOD-{}] converged in {}s with {} iteration."
-          .format(workers_segments.effective_n_seg, runtime, iterations))
+    if verbose > 0:
+        print("\r[DICOD-{}:INFO] converged in {}s with {} iteration."
+              .format(workers_segments.effective_n_seg, runtime, iterations))
 
     t_reduce = time() - t_start
-    if verbose > 0:
-        print('[DICOD-{}:DEBUG] End finalization - {:.4}s'
+    if verbose >= 5:
+        print('\r[DICOD-{}:DEBUG] End finalization - {:.4}s'
               .format(workers_segments.effective_n_seg, t_reduce))
     return z_hat

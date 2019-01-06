@@ -76,6 +76,7 @@ def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
 
     # Initialization of the algorithm variables
     i_seg = -1
+    accumulator = 0
     z_hat = np.zeros((n_atoms, height_valid, width_valid))
 
     beta, dz_opt = _init_beta(X_i, D, lmbd, z_i=None, constants=constants,
@@ -85,15 +86,14 @@ def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
             print("\rCD {:7.2%}".format(ii / max_iter), end='', flush=True)
 
         i_seg = segments.increment_seg(i_seg)
-        seg_bounds = segments.get_seg_bounds(i_seg)
         if segments.is_active_segment(i_seg):
-            k0, pt0, dz = _select_coordinate(dz_opt, seg_bounds,
+            k0, pt0, dz = _select_coordinate(dz_opt, segments, i_seg,
                                              strategy=strategy,
                                              random_state=random_state)
         else:
-            seg_slice = segments.get_seg_slice(i_seg)
-            assert np.all(abs(dz_opt[seg_slice]) <= tol), i_seg
             k0, pt0, dz = None, None, 0
+
+        accumulator = max(abs(dz), accumulator)
 
         # Update the selected coordinate and beta, only if the update is
         # greater than the convergence tolerance.
@@ -120,7 +120,7 @@ def coordinate_descent_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5,
 
         # check stopping criterion
         if _check_convergence(segments, tol, ii, dz_opt, n_coordinates,
-                              strategy):
+                              strategy, accumulator=accumulator):
             assert np.all(abs(dz_opt) <= tol)
             if verbose > 0:
                 print("[Coordinate descent converged after {} iterations"
@@ -216,7 +216,7 @@ def _init_beta(X_i, D, lmbd, z_i=None, constants={}, z_positive=False):
     return beta, dz_opt
 
 
-def _select_coordinate(dz_opt, seg_bounds, strategy='greedy',
+def _select_coordinate(dz_opt, segments, i_seg, strategy='greedy',
                        random_state=None):
     """Pick a coordinate to update
 
@@ -225,8 +225,8 @@ def _select_coordinate(dz_opt, seg_bounds, strategy='greedy',
     dz_opt : ndarray, shape (n_atoms, height_valid, width_valid)
         Difference between the current value and the optimal value for each
         coordinate.
-    seg_bounds : ((int, int), (int, int))
-        Boundaries of the current segment
+    segments : dicod.utils.Segmentation
+        Segmentation info for LGCD
     strategy : str in { 'greedy' | 'random' }
         Coordinate selection scheme for the coordinate descent. If set to
         'greedy', the coordinate with the largest value for dz_opt is selected.
@@ -241,22 +241,20 @@ def _select_coordinate(dz_opt, seg_bounds, strategy='greedy',
         h0 = rng.randint(height_valid)
         w0 = rng.randint(width_valid)
         dz = dz_opt[k0, h0, w0]
+        pt0 = (h0, w0)
 
     elif strategy == 'greedy':
-        start_height_seg, end_height_seg = seg_bounds[0]
-        start_width_seg, end_width_seg = seg_bounds[1]
-        dz_opt_seg = dz_opt[:, start_height_seg:end_height_seg,
-                            start_width_seg:end_width_seg]
+        seg_slice = segments.get_seg_slice(i_seg)
+        dz_opt_seg = dz_opt[seg_slice]
         i0 = abs(dz_opt_seg).argmax()
-        k0, h0, w0 = np.unravel_index(i0, dz_opt_seg.shape)
-        h0 += start_height_seg
-        w0 += start_width_seg
-        dz = dz_opt[k0, h0, w0]
+        k0, *pt0 = np.unravel_index(i0, dz_opt_seg.shape)
+        pt0 = segments.get_global_coordinate(i_seg, pt0)
+        dz = dz_opt[k0][pt0]
     else:
         raise ValueError("'The coordinate selection strategy should be in "
                          "{'greedy' | 'random' | 'cyclic'}. Got '{}'."
                          .format(strategy))
-    return k0, (h0, w0), dz
+    return k0, pt0, dz
 
 
 def _update_beta(k0, pt0, dz, beta, dz_opt, z_hat, D, lmbd, constants,
@@ -402,7 +400,7 @@ def get_interfering_neighbors(h0, w0, i_seg, seg_bounds, grid_shape,
 
 
 def _check_convergence(segments, tol, iteration, dz_opt, n_coordinates,
-                       strategy):
+                       strategy, accumulator=0):
     """Check convergence for the coordinate descent algorithm
 
     Parameters
@@ -422,6 +420,10 @@ def _check_convergence(segments, tol, iteration, dz_opt, n_coordinates,
         Coordinate selection scheme for the coordinate descent. If set to
         'greedy', the coordinate with the largest value for dz_opt is selected.
         If set to 'random, the coordinate is chosen uniformly on the segment.
+    accumulator : float, (default: 0)
+        In the case of strategy 'random', accumulator should keep track of an
+        approximation of max(abs(dz_opt)). The full convergence criterion will
+        only be checked if accumulator <= tol.
     """
     # check stopping criterion
     if strategy == 'greedy':
@@ -429,12 +431,14 @@ def _check_convergence(segments, tol, iteration, dz_opt, n_coordinates,
             if flags.CHECK_ACTIVE_SEGMENTS:
                 assert np.all(abs(dz_opt) <= tol)
             return True
-        return False
     else:
         # only check at the last coordinate
         if (iteration + 1) % n_coordinates == 0:
-            return np.all(abs(dz_opt) <= tol)
-        return False
+            accumulator *= 0
+            if accumulator <= tol:
+                return np.all(abs(dz_opt) <= tol)
+
+    return False
 
 
 def get_seg_bounds(i_seg, grid_seg, seg_shape, worker_bounds=None):

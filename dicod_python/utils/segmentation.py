@@ -50,7 +50,7 @@ class Segmentation:
         if seg_shape is not None:
             if isinstance(seg_shape, int):
                 seg_shape = [seg_shape] * self.n_axis
-            self.seg_shape = seg_shape
+            self.seg_shape = tuple(seg_shape)
             self.compute_n_seg()
         elif n_seg is not None:
             if isinstance(n_seg, int):
@@ -73,9 +73,9 @@ class Segmentation:
 
         # Validate the Segmentation
         if n_seg is not None:
-            assert n_seg == self.n_seg_per_axis
+            assert tuple(n_seg) == self.n_seg_per_axis
         if seg_shape is not None:
-            assert seg_shape == self.seg_shape
+            assert tuple(seg_shape) == self.seg_shape
 
     def compute_n_seg(self):
         """Compute the number of segment for each axis based on their shapes.
@@ -306,9 +306,80 @@ class Segmentation:
     def is_inner_coordinate(self, i_seg, pt):
         """Ensure that a given point is in the bounds to be a local coordinate.
         """
-        seg_bounds = self.get_seg_bounds(i_seg, only_inner=True)
+        seg_bounds_inner = self.get_seg_bounds(i_seg, only_inner=True)
         pt = self.get_global_coordinate(i_seg, pt)
         is_valid = True
-        for v, (v_start, v_end) in zip(pt, seg_bounds):
-            is_valid &= (v_start <= v < v_end)
+        for v, (start_in_ax, end_in_ax) in zip(pt, seg_bounds_inner):
+            is_valid &= (start_in_ax <= v < end_in_ax)
         return is_valid
+
+    def check_area_contained(self, i_seg, pt, radius):
+        """Check that the given area is contained in segment i_seg.
+
+        If not, fail with an AssertionError.
+        """
+
+        seg_bounds = self.get_seg_bounds(i_seg)
+        seg_shape = self.get_seg_shape(i_seg)
+        seg_bounds_inner = self.get_seg_bounds(i_seg, only_inner=True)
+
+        update_bounds = [[v - r, v + r + 1] for v, r in zip(pt, radius)]
+        assert self.is_inner_coordinate(i_seg, pt)
+        for i in range(self.n_axis):
+            assert (update_bounds[i][0] >= 0 or
+                    seg_bounds[i][0] == seg_bounds_inner[i][0])
+            assert (update_bounds[i][1] <= seg_shape[i]
+                    or seg_bounds[i][1] == seg_bounds_inner[i][1])
+
+    def get_touched_overlap_slices(self, i_seg, pt, radius):
+        """Return a list of slices in the overlap area, touched a rectangle
+
+        Parameter
+        ---------
+        i_seg : int
+            Indice of the considered segment.
+        pt : list of int
+            Coordinate of the given update.
+        radius: int or list of int
+            Radius of the update. If an integer is given, use the same integer
+            for all axis.
+
+        Return
+        ------
+        touched_slices : list of slices
+            Slices to select parts in the overlap area touched by the given
+            area. The slices can have some overlap
+        """
+        seg_bounds = self.get_seg_bounds(i_seg)
+        seg_shape = self.get_seg_shape(i_seg)
+        seg_bounds_inner = self.get_seg_bounds(i_seg, only_inner=True)
+
+        update_bounds = [[min(max(0, v - r), size_valid_ax),
+                          max(min(v + r + 1, size_valid_ax), 0)]
+                         for v, r, size_valid_ax in zip(pt, radius, seg_shape)]
+        inner_bounds = [
+            [start_in_ax - start_ax, end_in_ax - start_ax]
+            for (start_ax, _), (start_in_ax, end_in_ax) in zip(
+                seg_bounds, seg_bounds_inner)
+        ]
+
+        updated_slices = []
+        pre_slice = (Ellipsis,)
+        post_slice = tuple([slice(start, end)
+                            for start, end in update_bounds[1:]])
+        for (start, end), (start_inner, end_inner) in zip(
+                update_bounds, inner_bounds):
+            if start < start_inner:
+                assert start_inner < end < end_inner
+                updated_slices.append(
+                    pre_slice + (slice(start, start_inner),) +
+                    post_slice)
+            if end > end_inner:
+                assert start_inner < start < end_inner
+                updated_slices.append(
+                    pre_slice + (slice(end_inner, end),) +
+                    post_slice)
+            pre_slice = pre_slice + (slice(start, end),)
+            post_slice = post_slice[1:]
+
+        return updated_slices

@@ -125,3 +125,109 @@ def test_change_coordinate():
         corner = tuple([end for _, end in seg_bound])
         assert segments.get_global_coordinate(i_seg, seg_shape) == corner
         assert segments.get_local_coordinate(i_seg, corner) == seg_shape
+
+
+def test_inner_coordinate():
+    sig_shape = (505, 407)
+    overlap = (11, 11)
+    n_seg = (4, 4)
+    segments = Segmentation(n_seg=n_seg, signal_shape=sig_shape,
+                            overlap=overlap)
+
+    for h_rank in range(n_seg[0]):
+        for w_rank in range(n_seg[1]):
+            i_seg = h_rank * n_seg[1] + w_rank
+            seg_shape = segments.get_seg_shape(i_seg)
+            assert segments.is_inner_coordinate(i_seg, overlap)
+
+            if h_rank == 0:
+                assert segments.is_inner_coordinate(i_seg, (0, overlap[1]))
+            else:
+                assert not segments.is_inner_coordinate(
+                    i_seg, (overlap[0] - 1, overlap[1]))
+
+            if w_rank == 0:
+                assert segments.is_inner_coordinate(i_seg, (overlap[0], 0))
+            else:
+                assert not segments.is_inner_coordinate(
+                    i_seg, (overlap[0], overlap[1] - 1))
+
+            if h_rank == 0 and w_rank == 0:
+                assert segments.is_inner_coordinate(i_seg, (0, 0))
+            else:
+                assert not segments.is_inner_coordinate(
+                    i_seg, (overlap[0] - 1, overlap[1] - 1)
+                )
+
+            if h_rank == n_seg[0] - 1:
+                assert segments.is_inner_coordinate(
+                    i_seg, (seg_shape[0] - 1, seg_shape[1] - overlap[1] - 1))
+            else:
+                assert not segments.is_inner_coordinate(
+                    i_seg, (seg_shape[0] - overlap[0],
+                            seg_shape[1] - overlap[1] - 1))
+
+            if w_rank == n_seg[1] - 1:
+                assert segments.is_inner_coordinate(
+                   i_seg, (seg_shape[0] - overlap[0] - 1, seg_shape[1] - 1))
+            else:
+                assert not segments.is_inner_coordinate(
+                    i_seg, (seg_shape[0] - overlap[0] - 1,
+                            seg_shape[1] - overlap[1]))
+
+            if h_rank == n_seg[0] - 1 and w_rank == n_seg[1] - 1:
+                assert segments.is_inner_coordinate(
+                    i_seg, (seg_shape[0] - 1, seg_shape[1] - 1))
+            else:
+                assert not segments.is_inner_coordinate(
+                    i_seg, (seg_shape[0] - overlap[0],
+                            seg_shape[1] - overlap[1])
+                )
+
+
+def test_touched_overlap_area():
+    sig_shape = (505, 407)
+    overlap = (11, 9)
+    n_seg = (8, 4)
+    segments = Segmentation(n_seg=n_seg, signal_shape=sig_shape,
+                            overlap=overlap)
+
+    for i_seg in range(segments.effective_n_seg):
+        seg_shape = segments.get_seg_shape(i_seg)
+        seg_slice = segments.get_seg_slice(i_seg)
+        seg_inner_slice = segments.get_seg_slice(i_seg, only_inner=True)
+        if i_seg != 0:
+            with pytest.raises(AssertionError):
+                segments.check_area_contained((0, 0), overlap, i_seg)
+        for pt0 in [overlap, (overlap[0], 25), (25, overlap[1]), (25, 25),
+                    (seg_shape[0] - overlap[0] - 1, 25),
+                    (25, seg_shape[1] - overlap[1] - 1),
+                    (seg_shape[0] - overlap[0] - 1,
+                     seg_shape[1] - overlap[1] - 1)
+                    ]:
+            assert segments.is_inner_coordinate(i_seg, pt0)
+            segments.check_area_contained(pt0, overlap, i_seg)
+            z = np.zeros(sig_shape)
+            pt_global = segments.get_global_coordinate(i_seg, pt0)
+            update_slice = [
+                slice(max(v - r, 0), v + r + 1)
+                for v, r in zip(pt_global, overlap)]
+
+            z[update_slice] += 1
+            z[seg_inner_slice] = 0
+
+            # The returned slice are given in local coordinates. Take the
+            # segment in z to use local coordinate.
+            z_seg = z[seg_slice]
+
+            updated_slices = segments.get_touched_overlap_slices(pt0, overlap,
+                                                                 i_seg)
+            # Assert that all selected coordinate are indeed in the update area
+            for u_slice in updated_slices:
+                assert np.all(z_seg[u_slice] == 1)
+
+            # Assert that all coordinate updated in the overlap area have been
+            # selected with at least one slice.
+            for u_slice in updated_slices:
+                z_seg[u_slice] *= 0
+            assert np.all(z == 0)

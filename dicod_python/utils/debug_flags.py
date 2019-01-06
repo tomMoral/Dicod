@@ -9,4 +9,4 @@ CHECK_ACTIVE_SEGMENTS = False
 
 # If set to True, check that the updates selected have indeed an impact only
 # on the coefficients that are contained in the worker.
-CHECK_UPDATE_CONTAINED = True
+CHECK_UPDATE_CONTAINED = False
