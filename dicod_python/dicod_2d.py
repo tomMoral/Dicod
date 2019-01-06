@@ -9,6 +9,7 @@ from mpi4py import MPI
 from dicod_python.utils.mpi import broadcast_array
 from dicod_python.utils import debug_flags as flags
 from dicod_python.utils import constants as cst
+from dicod_python.utils.segmentation import Segmentation
 
 
 log = logging.getLogger('dicod')
@@ -21,8 +22,8 @@ interactive_args = ["-fa", "Monospace", "-fs", "12", "-e", "ipython", "-i"]
 
 def dicod_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5, strategy='greedy',
              n_jobs=1, w_world='auto', max_iter=100000, timeout=None,
-             z_positive=False, timing=False, hostfile=None, random_state=None,
-             verbose=0, debug=False):
+             z_positive=False, use_soft_lock=True, timing=False,
+             hostfile=None, random_state=None, verbose=0, debug=False):
     """DICOD for 2D convolutional sparse coding.
 
     Parameters
@@ -53,6 +54,8 @@ def dicod_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5, strategy='greedy',
         Timeout for the algorithm in seconds
     z_positive : boolean
         If set to true, the activations are constrained to be positive.
+    use_soft_lock : boolean
+        If set to true, use the soft-lock in LGCD.
     timing : boolean
         If set to True, log the cost and timing information.
     hostfile : str
@@ -71,24 +74,31 @@ def dicod_2d(X_i, D, lmbd, n_seg='auto', tol=1e-5, strategy='greedy',
     params = dict(
         strategy=strategy, tol=tol, max_iter=max_iter, timeout=timeout,
         n_seg=n_seg, z_positive=z_positive, verbose=verbose, timing=timing,
-        debug=debug, random_state=random_state
+        debug=debug, random_state=random_state, lmbd=lmbd,
+        use_soft_lock=use_soft_lock
     )
     n_channels, height, width = X_i.shape
     n_atoms, n_channels, height_atom, width_atom = D.shape
     height_valid = height - height_atom + 1
     width_valid = width - width_atom + 1
-    shape_valid = (height_valid, width_valid)
+    params['valid_shape'] = valid_shape = (height_valid, width_valid)
 
     if w_world == 'auto':
-        worker_topology = _find_grid_size(n_jobs, width, height)
+        params["workers_topology"] = _find_grid_size(n_jobs, width, height)
     else:
         assert n_jobs % w_world == 0
-        worker_topology = w_world, n_jobs // w_world
+        params["workers_topology"] = w_world, n_jobs // w_world
+
+    # compute a segmentation for the image,
+    overlap = (height_atom - 1, width_atom - 1)
+    workers_segments = Segmentation(n_seg=params['workers_topology'],
+                                    signal_shape=valid_shape,
+                                    overlap=overlap)
 
     comm = _spawn_workers(n_jobs, hostfile)
-    _send_task(comm, X_i, D, lmbd, worker_topology, params)
+    _send_task(comm, X_i, D, lmbd, workers_segments, params)
     comm.Barrier()
-    z_hat = _recv_result(comm, n_atoms, shape_valid, worker_topology,
+    z_hat = _recv_result(comm, n_atoms, valid_shape, workers_segments,
                          verbose=verbose)
     comm.Barrier()
     return z_hat
@@ -126,48 +136,40 @@ def _spawn_workers(n_jobs, hostfile):
     return comm
 
 
-def _send_task(comm, X, D, lmbd, worker_topology, params):
+def _send_task(comm, X, D, lmbd, workers_segments, params):
     t_start = time()
-    n_atoms, n_channels, height_atom, width_atom = D.shape
-    n_channels, height, width = X.shape
-    h_world, w_world = worker_topology
+    n_atoms, n_channels, *atom_shape = D.shape
+    height_atom, width_atom = atom_shape
 
-    # Compute shape for the valid image
-    height_valid = height - height_atom + 1
-    width_valid = width - width_atom + 1
-
-    params.update(lmbd=lmbd, valid_shape=(height_valid, width_valid),
-                  worker_topology=worker_topology)
     comm.bcast(params, root=MPI.ROOT)
     broadcast_array(comm, D)
 
     X = np.array(X, dtype='d')
     if params['debug']:
-        X_alpha = np.zeros((4, height, width), 'd')
-    height_worker = height_valid // h_world
-    width_worker = width_valid // w_world
-    for i in range(h_world):
-        h_start = max(0, i * height_worker - height_atom + 1)
-        h_end = min((i+1)*height_worker + 2 * height_atom - 2, height)
-        for j in range(w_world):
-            dest = i * w_world + j
-            w_start = max(0, j * width_worker - width_atom + 1)
-            w_end = min((j+1) * width_worker + 2 * width_atom - 2, width)
-            X_worker_slice = (slice(None), slice(h_start, h_end),
-                              slice(w_start, w_end))
-            comm.Send([X[X_worker_slice].ravel(), MPI.DOUBLE],
-                      dest, tag=cst.TAG_ROOT + dest)
-            if params['debug']:
-                X_worker = np.empty(X_alpha[X_worker_slice].shape, 'd')
-                comm.Recv([X_worker.ravel(), MPI.DOUBLE],
-                          source=dest, tag=cst.TAG_ROOT + dest)
-                X_alpha[:, h_start:h_end, w_start:w_end] += X_worker
+        X_alpha = np.zeros(X.shape, 'd')
+
+    for i_seg in range(workers_segments.effective_n_seg):
+        seg_bounds = workers_segments.get_seg_bounds(i_seg)
+        X_worker_slice = (Ellipsis,) + tuple([
+            slice(start, end + size_atom_ax - 1)
+            for (start, end), size_atom_ax in zip(seg_bounds, atom_shape)
+        ])
+
+        comm.Send([X[X_worker_slice].ravel(), MPI.DOUBLE],
+                  dest=i_seg, tag=cst.TAG_ROOT + i_seg)
+        if params['debug']:
+            X_worker = np.empty(X_alpha[X_worker_slice].shape, 'd')
+            comm.Recv([X_worker.ravel(), MPI.DOUBLE],
+                      source=i_seg, tag=cst.TAG_ROOT + i_seg)
+            X_alpha[X_worker_slice] += X_worker
+
     if params['debug']:
         import matplotlib.pyplot as plt
-        X_alpha[:3] = X_alpha[3:]
-        assert np.sum(X_alpha[3, 0] == 0.5) == 3*(width_atom - 1)
         plt.imshow(np.clip(X_alpha.swapaxes(0, 2), 0, 1))
         plt.show()
+        assert (np.sum(X_alpha[0, 0] == 0.5) ==
+                3 * (width_atom - 1) * (workers_segments.n_seg_per_axis[0] - 1)
+                )
 
     comm.Barrier()
 
@@ -177,40 +179,29 @@ def _send_task(comm, X, D, lmbd, worker_topology, params):
     return
 
 
-def _recv_result(comm, n_atoms, shape_valid, worker_topology, verbose=0):
+def _recv_result(comm, n_atoms, shape_valid, workers_segments, verbose=0):
 
     t_start = time()
-    height_valid, width_valid = shape_valid
-    h_world, w_world = worker_topology
-    n_jobs = h_world * w_world
 
     z_hat = np.empty((n_atoms,) + shape_valid, dtype='d')
-    height_worker = height_valid // h_world
-    width_worker = width_valid // w_world
-    for i in range(h_world):
-        h_end = (i+1) * height_worker
-        if i == h_world - 1:
-            h_end = height_valid
-        for j in range(w_world):
-            w_end = (j+1) * width_worker
-            if j == w_world - 1:
-                w_end = width_valid
-            worker_slice = (slice(None), slice(i * height_worker, h_end),
-                            slice(j * width_worker, w_end))
-            z_worker = np.empty(z_hat[worker_slice].shape, 'd')
-            dest = i * w_world + j
-            comm.Recv([z_worker.ravel(), MPI.DOUBLE], source=dest,
-                      tag=cst.TAG_ROOT + dest)
-            z_hat[worker_slice] = z_worker
+    for i_seg in range(workers_segments.effective_n_seg):
+        worker_shape = workers_segments.get_seg_shape(
+            i_seg, only_inner=True)
+        worker_slice = workers_segments.get_seg_slice(
+            i_seg, only_inner=True)
+        z_worker = np.empty((n_atoms,) + worker_shape, 'd')
+        comm.Recv([z_worker.ravel(), MPI.DOUBLE], source=i_seg,
+                  tag=cst.TAG_ROOT + i_seg)
+        z_hat[worker_slice] = z_worker
 
     stats = comm.gather(None, root=MPI.ROOT)
     iterations = np.sum(stats, axis=0)[0]
     runtime = np.max(stats, axis=0)[1]
     print("[DICOD-{}] converged in {}s with {} iteration."
-          .format(n_jobs, runtime, iterations))
+          .format(workers_segments.effective_n_seg, runtime, iterations))
 
     t_reduce = time() - t_start
-    if verbose > 5:
+    if verbose > 0:
         print('[DICOD-{}:DEBUG] End finalization - {:.4}s'
-              .format(n_jobs, t_reduce))
+              .format(workers_segments.effective_n_seg, t_reduce))
     return z_hat

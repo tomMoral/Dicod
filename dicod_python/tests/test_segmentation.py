@@ -10,16 +10,61 @@ def test_segmentation_coverage():
     for h_seg in [5, 7, 9, 13, 17]:
         for w_seg in [3, 11]:
             z = np.zeros(sig_shape)
-            segments = Segmentation((h_seg, w_seg), signal_shape=sig_shape)
+            segments = Segmentation(n_seg=(h_seg, w_seg),
+                                    signal_shape=sig_shape)
+            assert tuple(segments.n_seg_per_axis) == (h_seg, w_seg)
             seg_slice = segments.get_seg_slice(0)
+            seg_shape = segments.get_seg_shape(0)
+            assert seg_shape == z[seg_slice].shape
             z[seg_slice] += 1
             i_seg = segments.increment_seg(0)
             while i_seg != 0:
                 seg_slice = segments.get_seg_slice(i_seg)
+                seg_shape = segments.get_seg_shape(i_seg)
+                assert seg_shape == z[seg_slice].shape
                 z[seg_slice] += 1
                 i_seg = segments.increment_seg(i_seg)
 
             assert np.all(z == 1)
+
+
+def test_segmentation_coverage_overlap():
+    sig_shape = (505, 407)
+
+    for overlap in [(3, 0), (0, 5), (3, 5), (12, 7)]:
+        for h_seg in [5, 7, 9, 13, 15, 17]:
+            for w_seg in [3, 11]:
+                segments = Segmentation(n_seg=(h_seg, w_seg),
+                                        signal_shape=sig_shape,
+                                        overlap=overlap)
+                z = np.zeros(sig_shape)
+                for i_seg in range(segments.effective_n_seg):
+                    seg_slice = segments.get_seg_slice(i_seg, only_inner=True)
+                    z[seg_slice] += 1
+                    i_seg = segments.increment_seg(i_seg)
+                non_overlapping = np.prod(sig_shape)
+                assert np.sum(z == 1) == non_overlapping
+
+                z = np.zeros(sig_shape)
+                for i_seg in range(segments.effective_n_seg):
+                    seg_slice = segments.get_seg_slice(i_seg)
+                    z[seg_slice] += 1
+                    i_seg = segments.increment_seg(i_seg)
+
+                h_ov, w_ov = overlap
+                h_seg, w_seg = segments.n_seg_per_axis
+                expected_overlap = ((h_seg - 1) * sig_shape[1] * 2 * h_ov)
+                expected_overlap += ((w_seg - 1) * sig_shape[0] * 2 * w_ov)
+
+                # Compute the number of pixel where there is more than 2
+                # segments overlappping.
+                corner_overlap = 4 * (h_seg - 1) * (w_seg - 1) * h_ov * w_ov
+                expected_overlap -= 2 * corner_overlap
+
+                non_overlapping -= expected_overlap + corner_overlap
+                assert non_overlapping == np.sum(z == 1)
+                assert expected_overlap == np.sum(z == 2)
+                assert corner_overlap == np.sum(z == 4)
 
 
 def test_touched_segments():
@@ -61,3 +106,22 @@ def test_touched_segments():
     segments = Segmentation(n_seg, signal_shape=sig_shape)
     with pytest.raises(ValueError, message="too large"):
         segments.get_touched_segments((0, 0), (30, 2))
+
+
+def test_change_coordinate():
+    sig_shape = (505, 407)
+    overlap = (12, 7)
+    n_seg = (4, 4)
+    segments = Segmentation(n_seg=n_seg, signal_shape=sig_shape,
+                            overlap=overlap)
+
+    for i_seg in range(segments.effective_n_seg):
+        seg_bound = segments.get_seg_bounds(i_seg)
+        seg_shape = segments.get_seg_shape(i_seg)
+        origin = tuple([start for start, _ in seg_bound])
+        assert segments.get_global_coordinate(i_seg, (0, 0)) == origin
+        assert segments.get_local_coordinate(i_seg, origin) == (0, 0)
+
+        corner = tuple([end for _, end in seg_bound])
+        assert segments.get_global_coordinate(i_seg, seg_shape) == corner
+        assert segments.get_local_coordinate(i_seg, corner) == seg_shape

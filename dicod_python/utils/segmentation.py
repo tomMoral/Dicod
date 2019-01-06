@@ -11,80 +11,125 @@ class Segmentation:
         given, use this same number for all axis.
     signal_shape : list of int or None
         Size of the considered signal.
-    outer_bounds : list of (int, int)
+    inner_bounds : list of (int, int) or None
         Outer boundaries of the full signal in case of nested segmentation.
+    full_shape : list of int or None
+        Full shape of the underlying signals
     """
 
-    def __init__(self, n_seg, signal_shape=None, outer_bounds=None):
+    def __init__(self, n_seg=None, seg_shape=None, signal_shape=None,
+                 inner_bounds=None, full_shape=None, overlap=None):
 
-        # Get the shape of the signal from signal_shape or outer_bounds
-        if outer_bounds is not None:
-            signal_shape_ = [v[0] for v in np.diff(outer_bounds, axis=1)]
+        # Get the shape of the signal from signal_shape or inner_bounds
+        if inner_bounds is not None:
+            signal_shape_ = [v[0] for v in np.diff(inner_bounds, axis=1)]
             assert signal_shape is None or signal_shape == signal_shape_, (
-                "Incoherent shape for outer_bounds and signal_shape. Got "
-                "signal_shape={} and outer_bounds={}".format(
-                    signal_shape, outer_bounds
+                "Incoherent shape for inner_bounds and signal_shape. Got "
+                "signal_shape={} and inner_bounds={}".format(
+                    signal_shape, inner_bounds
                 ))
             signal_shape = signal_shape_
         else:
             assert signal_shape is not None, (
-                "either signal_shape or outer_bounds should be provided")
+                "either signal_shape or inner_bounds should be provided")
             if isinstance(signal_shape, int):
                 signal_shape = [signal_shape]
-            outer_bounds = [[0, s] for s in signal_shape]
+            inner_bounds = [[0, s] for s in signal_shape]
         self.signal_shape = signal_shape
-        self.outer_bounds = outer_bounds
+        self.inner_bounds = inner_bounds
+        self.n_axis = len(signal_shape)
 
-        # compute size of each segments
-        self.compute_seg_info(n_seg)
+        if full_shape is None:
+            full_shape = [end for _, end in self.inner_bounds]
+        self.full_shape = full_shape
+        assert np.all([size_full_ax >= end
+                       for size_full_ax, (_, end) in zip(self.full_shape,
+                                                         self.inner_bounds)])
+
+        # compute the size of each segments and the number of segments
+        if seg_shape is not None:
+            if isinstance(seg_shape, int):
+                seg_shape = [seg_shape] * self.n_axis
+            self.seg_shape = seg_shape
+            self.compute_n_seg()
+        elif n_seg is not None:
+            if isinstance(n_seg, int):
+                n_seg = [n_seg] * self.n_axis
+            self.n_seg_per_axis = tuple(n_seg)
+            self.compute_seg_shape()
+
+        # Validate the overlap
+        if overlap is None:
+            self.overlap = [0] * self.n_axis
+        elif isinstance(overlap, int):
+            self.overlap = [overlap] * self.n_axis
+        else:
+            assert np.iterable(overlap)
+            self.overlap = overlap
 
         # Initializes variable to keep track of active segments
         self._n_active_segments = self.effective_n_seg
         self._active_segments = [True] * self.effective_n_seg
 
-    def compute_seg_info(self, n_seg):
-        """Compute the number of segment and their shapes for each axis.
+        # Validate the Segmentation
+        if n_seg is not None:
+            assert n_seg == self.n_seg_per_axis
+        if seg_shape is not None:
+            assert seg_shape == self.seg_shape
+
+    def compute_n_seg(self):
+        """Compute the number of segment for each axis based on their shapes.
         """
-
-        if isinstance(n_seg, int):
-            n_seg = [n_seg] * len(self.signal_shape)
-
         self.effective_n_seg = 1
-        seg_shape, n_seg_per_axis = [], []
-        for size_axis, n_seg_axis in zip(self.signal_shape, n_seg):
-            seg_shape.append(max(size_axis // n_seg_axis, 1))
-            n_seg_per_axis.append(size_axis // seg_shape[-1])
-            self.effective_n_seg *= int(n_seg_per_axis[-1])
+        self.n_seg_per_axis = []
+        for size_ax, size_seg_ax in zip(self.signal_shape, self.seg_shape):
+            # Make sure that n_seg_ax is of type in (and not np.int*)
+            n_seg_ax = int(size_ax // size_seg_ax)
+            self.n_seg_per_axis.append(n_seg_ax)
+            self.effective_n_seg *= n_seg_ax
 
-        self.n_seg_per_axis = n_seg_per_axis
-        self.seg_shape = seg_shape
+    def compute_seg_shape(self):
+        """Compute the number of segment for each axis based on their shapes.
+        """
+        self.effective_n_seg = 1
+        self.seg_shape = []
+        for size_ax, n_seg_ax in zip(self.signal_shape, self.n_seg_per_axis):
+            # Make sure that n_seg_ax is of type in (and not np.int*)
+            size_seg_ax = size_ax // n_seg_ax
+            size_seg_ax += (size_ax % n_seg_ax >= n_seg_ax // 2)
+            self.seg_shape.append(size_seg_ax)
+            self.effective_n_seg *= n_seg_ax
 
-    def get_seg_bounds(self, i_seg):
+    def get_seg_bounds(self, i_seg, only_inner=False):
         """Return a segment's boundaries."""
 
         seg_bounds = []
-        axis_offset = self.effective_n_seg
-        for n_seg_axis, seg_size_axis, (axis_start, axis_end) in zip(
-                self.n_seg_per_axis, self.seg_shape, self.outer_bounds):
-            axis_offset //= n_seg_axis
-            axis_i_seg = i_seg // axis_offset
-            axis_bound_start = axis_start + axis_i_seg * seg_size_axis
-            axis_bound = [axis_bound_start, axis_bound_start + seg_size_axis]
-            if (axis_i_seg + 1) % n_seg_axis == 0:
-                axis_bound[1] = axis_end
-            seg_bounds.append(axis_bound)
-            i_seg %= axis_offset
+        ax_offset = self.effective_n_seg
+        for n_seg_ax, size_seg_ax, size_full_ax, (start, end), out in zip(
+                self.n_seg_per_axis, self.seg_shape, self.full_shape,
+                self.inner_bounds, self.overlap):
+            ax_offset //= n_seg_ax
+            ax_i_seg = i_seg // ax_offset
+            ax_bound_start = start + ax_i_seg * size_seg_ax
+            ax_bound_end = ax_bound_start + size_seg_ax
+            if (ax_i_seg + 1) % n_seg_ax == 0:
+                ax_bound_end = end
+            if not only_inner:
+                ax_bound_end = min(ax_bound_end + out, size_full_ax)
+                ax_bound_start = max(ax_bound_start - out, 0)
+            seg_bounds.append([ax_bound_start, ax_bound_end])
+            i_seg %= ax_offset
         return seg_bounds
 
-    def get_seg_slice(self, i_seg):
+    def get_seg_slice(self, i_seg, only_inner=False):
         """Return a segment's slice"""
-        seg_bounds = self.get_seg_bounds(i_seg)
+        seg_bounds = self.get_seg_bounds(i_seg, only_inner=only_inner)
         return (Ellipsis,) + tuple([slice(s, e) for s, e in seg_bounds])
 
-    def get_seg_shape(self, i_seg):
+    def get_seg_shape(self, i_seg, only_inner=False):
         """Return a segment's shape"""
-        seg_bounds = self.get_seg_bounds(i_seg)
-        return tuple([e - s for s, e in seg_bounds])
+        seg_bounds = self.get_seg_bounds(i_seg, only_inner=only_inner)
+        return tuple(np.diff(seg_bounds, axis=1).squeeze())
 
     def find_segment(self, pt):
         """Find the indice of the segment containing the given point.
@@ -103,12 +148,13 @@ class Segmentation:
             Indices of the segment containing pt or the closest one in
             manhattan distance if pt is out of range.
         """
+        assert len(pt) == self.n_axis
         i_seg = 0
         axis_offset = self.effective_n_seg
-        for x, n_seg_axis, seg_size_axis, (axis_start, axis_end) in zip(
-                pt, self.n_seg_per_axis, self.seg_shape, self.outer_bounds):
+        for x, n_seg_axis, size_seg_axis, (axis_start, axis_end) in zip(
+                pt, self.n_seg_per_axis, self.seg_shape, self.inner_bounds):
             axis_offset //= n_seg_axis
-            axis_i_seg = max(min((x - axis_start) // seg_size_axis,
+            axis_i_seg = max(min((x - axis_start) // size_seg_axis,
                                  n_seg_axis - 1), 0)
             i_seg += axis_i_seg * axis_offset
 
@@ -135,8 +181,9 @@ class Segmentation:
             Indices of all segments touched by this update, including the one
             in which the update took place.
         """
+        assert len(pt) == self.n_axis
         if isinstance(radius, int):
-            radius = [radius] * len(pt)
+            radius = [radius] * self.n_axis
 
         for r, size_axis in zip(radius, self.seg_shape):
             if r >= size_axis:
@@ -144,21 +191,22 @@ class Segmentation:
                                  "to the segmentation size.")
 
         i_seg = self.find_segment(pt)
-        seg_bounds = self.get_seg_bounds(i_seg)
+        seg_bounds = self.get_seg_bounds(i_seg, only_inner=True)
 
         segments = [i_seg]
         axis_offset = self.effective_n_seg
-        for x, r, n_seg_axis, (axis_start, axis_end) in zip(
-                pt, radius, self.n_seg_per_axis, seg_bounds):
+        for x, r, n_seg_axis, (axis_start, axis_end), overlap_ax in zip(
+                pt, radius, self.n_seg_per_axis, seg_bounds, self.overlap):
             axis_offset //= n_seg_axis
             axis_i_seg = i_seg // axis_offset
             i_seg %= axis_offset
             new_segments = []
-            if x - r < axis_start and axis_i_seg > 0:
+            if x - r < axis_start + overlap_ax and axis_i_seg > 0:
                 new_segments.extend([n - axis_offset for n in segments])
-            if x + r >= axis_start or x - r < axis_end:
+            if (x + r >= axis_start - overlap_ax or
+                    x - r < axis_end + overlap_ax):
                 new_segments.extend([n for n in segments])
-            if x + r >= axis_end and axis_i_seg < n_seg_axis - 1:
+            if x + r >= axis_end - overlap_ax and axis_i_seg < n_seg_axis - 1:
                 new_segments.extend([n + axis_offset for n in segments])
             segments = new_segments
 
@@ -216,3 +264,51 @@ class Segmentation:
             if not self.is_active_segment(i):
                 seg_slice = self.get_seg_slice(i)
                 assert np.all(abs(dz[seg_slice]) <= tol)
+
+    def get_global_coordinate(self, i_seg, pt):
+        """Convert a point from local coordinate to global coordinate
+
+        Parameters
+        ----------
+        pt: (int, int)
+            Coordinate to convert, from the local coordinate system.
+
+        Return
+        ------
+        pt : (int, int)
+            Coordinate converted in the global coordinate system.
+        """
+        seg_bounds = self.get_seg_bounds(i_seg)
+        res = []
+        for v, (offset, _) in zip(pt, seg_bounds):
+            res += [v + offset]
+        return tuple(res)
+
+    def get_local_coordinate(self, i_seg, pt):
+        """Convert a point from global coordinate to local coordinate
+
+        Parameters
+        ----------
+        pt: (int, int)
+            Coordinate to convert, from the global coordinate system.
+
+        Return
+        ------
+        pt : (int, int)
+            Coordinate converted in the local coordinate system.
+        """
+        seg_bounds = self.get_seg_bounds(i_seg)
+        res = []
+        for v, (offset, _) in zip(pt, seg_bounds):
+            res += [v - offset]
+        return tuple(res)
+
+    def is_inner_coordinate(self, i_seg, pt):
+        """Ensure that a given point is in the bounds to be a local coordinate.
+        """
+        seg_bounds = self.get_seg_bounds(i_seg, only_inner=True)
+        pt = self.get_global_coordinate(i_seg, pt)
+        is_valid = True
+        for v, (v_start, v_end) in zip(pt, seg_bounds):
+            is_valid &= (v_start <= v < v_end)
+        return is_valid
