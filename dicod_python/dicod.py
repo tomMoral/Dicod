@@ -6,6 +6,7 @@ import numpy as np
 from time import time
 from mpi4py import MPI
 
+from dicod_python.utils.csc import cost
 from dicod_python.utils import constants
 from dicod_python.utils.mpi import broadcast_array
 from dicod_python.utils import debug_flags as flags
@@ -113,11 +114,44 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     comm = _spawn_workers(n_jobs, hostfile)
     _send_task(comm, X_i, D, reg, z0, workers_segments, params)
     comm.Barrier()
-    z_hat, ztz, ztX = _recv_result(
+    z_hat, ztz, ztX, _log = _recv_result(
         comm, D.shape, valid_shape, workers_segments, return_ztz=return_ztz,
-        verbose=verbose)
+        timing=timing, verbose=verbose)
     comm.Barrier()
-    return z_hat, ztz, ztX
+
+    if timing:
+        p_obj = reconstruct_pobj(X_i, D, reg, _log, n_jobs=n_jobs,
+                                 valid_shape=valid_shape, z0=z0)
+    else:
+        p_obj = None
+    return z_hat, ztz, ztX, p_obj
+
+
+def reconstruct_pobj(X, D, reg, _log, n_jobs, valid_shape=None, z0=None):
+    n_atoms = D.shape[0]
+    if z0 is None:
+        z_hat = np.zeros((n_atoms, *valid_shape))
+    else:
+        z_hat = np.copy(z0)
+
+    # Re-order the updates
+    _log.sort()
+
+    up_ii = 0
+    p_obj = []
+    next_cost = 1
+    last_ii = [0] * n_jobs
+    for i, (t_update, ii, rank, k0, pt0, dz) in enumerate(_log):
+        print(i)
+        z_hat[k0][tuple(pt0)] += dz
+        up_ii += ii - last_ii[rank]
+        last_ii[rank] = ii
+        if up_ii >= next_cost:
+            p_obj.append((up_ii, t_update, cost(X, z_hat, D, reg)))
+            next_cost = next_cost * 2
+
+    p_obj.append((up_ii, t_update, cost(X, z_hat, D, reg)))
+    return np.array(p_obj)
 
 
 def _find_grid_size(n_jobs, sig_shape):
@@ -207,7 +241,7 @@ def _send_task(comm, X, D, reg, z0, workers_segments, params):
 
 
 def _recv_result(comm, D_shape, valid_shape, workers_segments,
-                 return_ztz=False, verbose=0):
+                 return_ztz=False, timing=False, verbose=0):
     n_atoms, n_channels, *atom_shape = D_shape
 
     t_start = time()
@@ -236,6 +270,11 @@ def _recv_result(comm, D_shape, valid_shape, workers_segments,
     else:
         ztz, ztX = None, None
 
+    if timing:
+        _log = []
+        for i_seg in range(workers_segments.effective_n_seg):
+            _log.extend(comm.recv(source=i_seg))
+
     stats = comm.gather(None, root=MPI.ROOT)
     n_coordinate_updates = np.sum(stats, axis=0)[0]
     runtime = np.max(stats, axis=0)[1]
@@ -248,4 +287,5 @@ def _recv_result(comm, D_shape, valid_shape, workers_segments,
     if verbose >= 5:
         print('\r[DICOD-{}:DEBUG] End finalization - {:.4}s'
               .format(workers_segments.effective_n_seg, t_reduce))
-    return z_hat, ztz, ztX
+
+    return z_hat, ztz, ztX, _log

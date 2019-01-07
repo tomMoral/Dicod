@@ -124,10 +124,10 @@ class DICODWorker:
             self.z_hat = self.z0
         n_coordinates = n_atoms * np.prod(seg_in_shape)
 
-        t_start = time.time()
         diverging = False
         if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
             import ipdb; ipdb.set_trace()  # noqa: E702
+        t_start = time.time()
         for ii in range(self.max_iter):
             # Display the progress of the algorithm
             self.progress(ii, max_ii=self.max_iter, unit="iterations")
@@ -184,6 +184,11 @@ class DICODWorker:
                 msg = np.array([k0, *pt_global, dz], 'd')
                 self.notify_neighbors(msg, workers)
 
+                if self.timing:
+                    t_update = time.time() - t_start
+                    self._log_updates.append((t_update, ii, self.rank,
+                                              k0, pt_global, dz))
+
             # Inactivate the current segment if the magnitude of the update is
             # too small. This only work when using LGCD.
             if abs(dz) <= self.tol and self.strategy == "greedy":
@@ -196,10 +201,6 @@ class DICODWorker:
                 self.wait_status_changed(status=constants.STATUS_FINISHED)
                 diverging = True
                 break
-
-            if self.timing:
-                # TODO: logging stuff
-                pass
 
             # Check the stopping criterion and if we have locally converged,
             # wait either for an incoming message or for full convergence.
@@ -238,8 +239,11 @@ class DICODWorker:
         constants['DtD'] = compute_DtD(self.D)
         self.constants = constants
 
-        # List of all pending messages
+        # List of all pending messages sent
         self.messages = []
+
+        # Log all updates for logging purpose
+        self._log_updates = []
 
         # Initialization of the auxillary variable for LGCD
         self.beta, self.dz_opt = _init_beta(
@@ -364,6 +368,25 @@ class DICODWorker:
         else:
             assert status == constants.STATUS_STOP
         return status
+
+    def compute_sufficient_statistics(self):
+        _, _, *atom_shape = self.D.shape
+        z_slice = (Ellipsis,) + tuple([
+            slice(start, end)
+            for start, end in self.local_segments.inner_bounds
+        ])
+        X_slice = (Ellipsis,) + tuple([
+            slice(start, end + size_atom_ax - 1)
+            for (start, end), size_atom_ax in zip(
+                self.local_segments.inner_bounds, atom_shape)
+        ])
+
+        ztX = compute_ztX(self.z_hat[z_slice], self.X_worker[X_slice])
+
+        padding_shape = self.workers_segments.get_padding_to_overlap(self.rank)
+        ztz = compute_ztz(self.z_hat, atom_shape,
+                          padding_shape=padding_shape)
+        return np.array(ztz, dtype='d'), np.array(ztX, dtype='d')
 
     ###########################################################################
     #     Display utilities
@@ -521,27 +544,11 @@ class DICODWorker:
             comm.Reduce([ztz, MPI.DOUBLE], None, MPI.SUM, root=0)
             comm.Reduce([ztX, MPI.DOUBLE], None, MPI.SUM, root=0)
 
+        if self.timing:
+            comm.send(self._log_updates, dest=0)
+
         comm.gather([iterations, runtime], root=0)
         comm.Barrier()
-
-    def compute_sufficient_statistics(self):
-        _, _, *atom_shape = self.D.shape
-        z_slice = (Ellipsis,) + tuple([
-            slice(start, end)
-            for start, end in self.local_segments.inner_bounds
-        ])
-        X_slice = (Ellipsis,) + tuple([
-            slice(start, end + size_atom_ax - 1)
-            for (start, end), size_atom_ax in zip(
-                self.local_segments.inner_bounds, atom_shape)
-        ])
-
-        ztX = compute_ztX(self.z_hat[z_slice], self.X_worker[X_slice])
-
-        padding_shape = self.workers_segments.get_padding_to_overlap(self.rank)
-        ztz = compute_ztz(self.z_hat, atom_shape,
-                          padding_shape=padding_shape)
-        return np.array(ztz, dtype='d'), np.array(ztX, dtype='d')
 
     def _shutdown_mpi(self):
         comm = MPI.Comm.Get_parent()
