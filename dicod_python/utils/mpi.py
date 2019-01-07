@@ -19,7 +19,7 @@ def recv_broadcasted_array(comm):
 
     arr_shape = np.empty(N[1], dtype='i')
     comm.Bcast([arr_shape, MPI.INT], root=0)
-    
+
     arr = np.empty(N[0], dtype='d')
     comm.Bcast([arr, MPI.DOUBLE], root=0)
     return arr.reshape(arr_shape)

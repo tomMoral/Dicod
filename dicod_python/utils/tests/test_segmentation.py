@@ -39,7 +39,7 @@ def test_segmentation_coverage_overlap():
                                         overlap=overlap)
                 z = np.zeros(sig_shape)
                 for i_seg in range(segments.effective_n_seg):
-                    seg_slice = segments.get_seg_slice(i_seg, only_inner=True)
+                    seg_slice = segments.get_seg_slice(i_seg, inner=True)
                     z[seg_slice] += 1
                     i_seg = segments.increment_seg(i_seg)
                 non_overlapping = np.prod(sig_shape)
@@ -138,51 +138,56 @@ def test_inner_coordinate():
         for w_rank in range(n_seg[1]):
             i_seg = h_rank * n_seg[1] + w_rank
             seg_shape = segments.get_seg_shape(i_seg)
-            assert segments.is_inner_coordinate(i_seg, overlap)
+            assert segments.is_contained_coordinate(i_seg, overlap,
+                                                    inner=True)
 
             if h_rank == 0:
-                assert segments.is_inner_coordinate(i_seg, (0, overlap[1]))
+                assert segments.is_contained_coordinate(i_seg, (0, overlap[1]),
+                                                        inner=True)
             else:
-                assert not segments.is_inner_coordinate(
-                    i_seg, (overlap[0] - 1, overlap[1]))
+                assert not segments.is_contained_coordinate(
+                    i_seg, (overlap[0] - 1, overlap[1]), inner=True)
 
             if w_rank == 0:
-                assert segments.is_inner_coordinate(i_seg, (overlap[0], 0))
+                assert segments.is_contained_coordinate(i_seg, (overlap[0], 0),
+                                                        inner=True)
             else:
-                assert not segments.is_inner_coordinate(
-                    i_seg, (overlap[0], overlap[1] - 1))
+                assert not segments.is_contained_coordinate(
+                    i_seg, (overlap[0], overlap[1] - 1), inner=True)
 
             if h_rank == 0 and w_rank == 0:
-                assert segments.is_inner_coordinate(i_seg, (0, 0))
+                assert segments.is_contained_coordinate(i_seg, (0, 0),
+                                                        inner=True)
             else:
-                assert not segments.is_inner_coordinate(
-                    i_seg, (overlap[0] - 1, overlap[1] - 1)
-                )
+                assert not segments.is_contained_coordinate(
+                    i_seg, (overlap[0] - 1, overlap[1] - 1), inner=True)
 
             if h_rank == n_seg[0] - 1:
-                assert segments.is_inner_coordinate(
-                    i_seg, (seg_shape[0] - 1, seg_shape[1] - overlap[1] - 1))
+                assert segments.is_contained_coordinate(
+                    i_seg, (seg_shape[0] - 1, seg_shape[1] - overlap[1] - 1),
+                    inner=True)
             else:
-                assert not segments.is_inner_coordinate(
+                assert not segments.is_contained_coordinate(
                     i_seg, (seg_shape[0] - overlap[0],
-                            seg_shape[1] - overlap[1] - 1))
+                            seg_shape[1] - overlap[1] - 1), inner=True)
 
             if w_rank == n_seg[1] - 1:
-                assert segments.is_inner_coordinate(
-                   i_seg, (seg_shape[0] - overlap[0] - 1, seg_shape[1] - 1))
+                assert segments.is_contained_coordinate(
+                   i_seg, (seg_shape[0] - overlap[0] - 1, seg_shape[1] - 1),
+                   inner=True)
             else:
-                assert not segments.is_inner_coordinate(
+                assert not segments.is_contained_coordinate(
                     i_seg, (seg_shape[0] - overlap[0] - 1,
-                            seg_shape[1] - overlap[1]))
+                            seg_shape[1] - overlap[1]), inner=True)
 
             if h_rank == n_seg[0] - 1 and w_rank == n_seg[1] - 1:
-                assert segments.is_inner_coordinate(
-                    i_seg, (seg_shape[0] - 1, seg_shape[1] - 1))
+                assert segments.is_contained_coordinate(
+                    i_seg, (seg_shape[0] - 1, seg_shape[1] - 1),
+                    inner=True)
             else:
-                assert not segments.is_inner_coordinate(
+                assert not segments.is_contained_coordinate(
                     i_seg, (seg_shape[0] - overlap[0],
-                            seg_shape[1] - overlap[1])
-                )
+                            seg_shape[1] - overlap[1]), inner=True)
 
 
 def test_touched_overlap_area():
@@ -195,18 +200,18 @@ def test_touched_overlap_area():
     for i_seg in range(segments.effective_n_seg):
         seg_shape = segments.get_seg_shape(i_seg)
         seg_slice = segments.get_seg_slice(i_seg)
-        seg_inner_slice = segments.get_seg_slice(i_seg, only_inner=True)
+        seg_inner_slice = segments.get_seg_slice(i_seg, inner=True)
         if i_seg != 0:
             with pytest.raises(AssertionError):
-                segments.check_area_contained((0, 0), overlap, i_seg)
+                segments.check_area_contained(i_seg, (0, 0), overlap)
         for pt0 in [overlap, (overlap[0], 25), (25, overlap[1]), (25, 25),
                     (seg_shape[0] - overlap[0] - 1, 25),
                     (25, seg_shape[1] - overlap[1] - 1),
                     (seg_shape[0] - overlap[0] - 1,
                      seg_shape[1] - overlap[1] - 1)
                     ]:
-            assert segments.is_inner_coordinate(i_seg, pt0)
-            segments.check_area_contained(pt0, overlap, i_seg)
+            assert segments.is_contained_coordinate(i_seg, pt0, inner=True)
+            segments.check_area_contained(i_seg, pt0, overlap)
             z = np.zeros(sig_shape)
             pt_global = segments.get_global_coordinate(i_seg, pt0)
             update_slice = [
@@ -220,8 +225,8 @@ def test_touched_overlap_area():
             # segment in z to use local coordinate.
             z_seg = z[seg_slice]
 
-            updated_slices = segments.get_touched_overlap_slices(pt0, overlap,
-                                                                 i_seg)
+            updated_slices = segments.get_touched_overlap_slices(i_seg, pt0,
+                                                                 overlap)
             # Assert that all selected coordinate are indeed in the update area
             for u_slice in updated_slices:
                 assert np.all(z_seg[u_slice] == 1)
@@ -231,3 +236,18 @@ def test_touched_overlap_area():
             for u_slice in updated_slices:
                 z_seg[u_slice] *= 0
             assert np.all(z == 0)
+
+
+def test_padding_to_overlap():
+    n_seg = (4, 4)
+    sig_shape = (504, 504)
+    overlap = (12, 7)
+
+    seg = Segmentation(n_seg=n_seg, signal_shape=sig_shape, overlap=overlap)
+    seg_shape_all = seg.get_seg_shape(n_seg[1] + 1)
+    for i_seg in range(np.prod(n_seg)):
+        seg_shape = seg.get_seg_shape(i_seg)
+        z = np.empty(seg_shape)
+        overlap = seg.get_padding_to_overlap(i_seg)
+        z = np.pad(z, overlap, mode='constant')
+        assert z.shape == seg_shape_all

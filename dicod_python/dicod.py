@@ -3,302 +3,249 @@ import os
 import sys
 import logging
 import numpy as np
-from time import time, sleep
+from time import time
 from mpi4py import MPI
-from scipy.signal import fftconvolve
+
+from dicod_python.utils import constants
+from dicod_python.utils.mpi import broadcast_array
+from dicod_python.utils import debug_flags as flags
+from dicod_python.utils.segmentation import Segmentation
 
 
 log = logging.getLogger('dicod')
 
-TAG_ROOT = 4242
+# debug flags
 
-ALGO_GS = 0
-ALGO_RANDOM = 1
+interactive_exec = "xterm"
+interactive_args = ["-fa", "Monospace", "-fs", "12", "-e", "ipython", "-i"]
 
 
-class DICOD:
-    """MPI implementation of the distributed convolutional pursuit
+def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
+          use_soft_lock=True, n_jobs=1, w_world='auto', hostfile=None,
+          tol=1e-5, max_iter=100000, timeout=None, z_positive=False,
+          return_ztz=False, timing=False, random_state=None, verbose=0,
+          debug=False):
+    """DICOD for 2D convolutional sparse coding.
 
     Parameters
     ----------
-    n_jobs: int (default: 1)
-        Maximal number of process to solve this problem
-    n_seg: int (default: 1)
-        If >1, further segment the updates and update
-        the best coordinate over each segment cyclically
-    hostfile: str (default: None)
-        Specify a hostfile for mpi launch, permit to use
-        more than one computer
-    logging: bool (default: False)
-        Enable the logging of the updates to allow printing a
-        cost curve
-    verbose: int (default: 0)
-        verbosity level
-    positive: bool (default: False)
-        If set to true, enforces a positivity constraint for the solution.
-    algorithm : { ALGO_GS, ALGO_RANDOM }
-        Algorithm to use in local updates for the distributed algorithm. Either
-        use Gauss-southwell greedy updates (ALGO_GS: 0) or uniform selection
-        (ALGO_RANDOM: 1)
-    tol: float, (default: 1e-10)
-        minimal step size, stop once no coordinate can move more than this tol.
-    max_iter: int (default: 1000)
-        Maximal number of iteration of the optimization using LGCD
-    timeout: int (default: 40)
-        Maximal time in seconds to run this algorithm
+    X_i : ndarray, shape (n_channels, *sig_shape)
+        Image to encode on the dictionary D
+    D : ndarray, shape (n_atoms, n_channels, *atom_shape)
+        Current dictionary for the sparse coding
+    reg : float
+        Regularization parameter
+    z0 : ndarray, shape (n_atoms, *valid_shape) or None
+        Warm start value for z_hat. If None, z_hat is initialized to 0.
+    n_seg : int or { 'auto' }
+        Number of segments to use for each dimension. If set to 'auto' use
+        segments of twice the size of the dictionary.
+    strategy : str in { 'greedy' | 'random' }
+        Coordinate selection scheme for the coordinate descent. If set to
+        'greedy', the coordinate with the largest value for dz_opt is selected.
+        If set to 'random, the coordinate is chosen uniformly on the segment.
+    use_soft_lock : boolean
+        If set to true, use the soft-lock in LGCD.
+    n_jobs : int
+        Number of workers used to compute the convolutional sparse coding
+        solution.
+    w_world : int or {'auto'}
+        Number of jobs used per row in the splitting grid. This should divide
+        n_jobs.
+    hostfile : str
+        File containing the cluster information. See MPI documentation to have
+        the format of this file.
+    tol : float
+        Tolerance for the minimal update size in this algorithm.
+    max_iter : int
+        Maximal number of iteration run by this algorithm.
+    timeout : int
+        Timeout for the algorithm in seconds
+    z_positive : boolean
+        If set to true, the activations are constrained to be positive.
+    return_ztz : boolean
+        If True, returns the constants ztz and ztX, used to compute D-updates.
+    timing : boolean
+        If set to True, log the cost and timing information.
+    random_state : None or int or RandomState
+        current random state to seed the random number generator.
+    verbose : int
+        Verbosity level of the algorithm.
+
+    Return
+    ------
+    z_hat : ndarray, shape (n_atoms, *valid_shape)
+        Activation associated to X_i for the given dictionary D
     """
+    params = dict(
+        strategy=strategy, tol=tol, max_iter=max_iter, timeout=timeout,
+        n_seg=n_seg, z_positive=z_positive, verbose=verbose, timing=timing,
+        debug=debug, random_state=random_state, reg=reg, return_ztz=return_ztz,
+        use_soft_lock=use_soft_lock, has_z0=z0 is not None
+    )
+    n_channels, *sig_shape = X_i.shape
+    n_atoms, n_channels, *atom_shape = D.shape
+    assert D.ndim - 1 == X_i.ndim
 
-    def __init__(self, n_jobs=1, n_seg=0, hostfile=None,
-                 logging=False, verbose=0, positive=False, w_world='auto',
-                 algorithm=ALGO_GS, patience=1000, tol=1e-10, max_iter=100,
-                 timeout=40):
-        self.tol = tol
-        self.max_iter = max_iter
-        self.timeout = timeout
-        self.verbose = verbose
-        self.n_jobs = n_jobs
-        self.w_world = w_world
-        self.hostfile = hostfile
-        self.logging = 1 if logging else 0
-        self.n_seg = n_seg
-        self.positive = 1 if positive else 0
-        self.algorithm = algorithm
-        self.patience = 1000
-        self.name = 'MPI_DCP' + str(self.n_jobs)
+    params['valid_shape'] = valid_shape = tuple([
+        size_ax - size_atom_ax + 1
+        for size_ax, size_atom_ax in zip(sig_shape, atom_shape)
+    ])
+    overlap = tuple([size_atom_ax - 1 for size_atom_ax in atom_shape])
 
-    def fit(self, X, D, lmbd):
-        self._spawn_workers()
-        self._send_task(X, D, lmbd)
+    if w_world == 'auto':
+        params["workers_topology"] = _find_grid_size(n_jobs, sig_shape)
+    else:
+        assert n_jobs % w_world == 0
+        params["workers_topology"] = w_world, n_jobs // w_world
 
-        self.end()
+    # compute a segmentation for the image,
+    workers_segments = Segmentation(n_seg=params['workers_topology'],
+                                    signal_shape=valid_shape,
+                                    overlap=overlap)
 
-    def _spawn_workers(self):
-        info = MPI.Info.Create()
-        info.Set("map_bynode", '1')
-        if self.hostfile and os.path.exists(self.hostfile):
-            info.Set("hostfile", self.hostfile)
-        script_name = os.path.join(os.path.dirname(__file__),
-                                   "_dicod_worker.py")
-        self._comm = MPI.COMM_SELF.Spawn(sys.executable, args=[script_name],
-                                         maxprocs=self.n_jobs, info=info)
-        self._comm.Barrier()
+    # Make sure we are not below twice the size of the dictionary
+    worker_valid_shape = workers_segments.get_seg_shape(0, inner=True)
+    for size_atom_ax, size_valid_ax in zip(atom_shape, worker_valid_shape):
+        if 2 * size_atom_ax - 1 >= size_valid_ax:
+            raise ValueError("Using too many cores.")
 
-    def _find_grid_size(self, width, height):
-        w_world, h_world = 1, self.n_jobs
-        w_ratio = width * self.n_jobs / height
-        for i in range(2, self.n_jobs + 1):
-            if self.n_jobs % i != 0:
+    comm = _spawn_workers(n_jobs, hostfile)
+    _send_task(comm, X_i, D, reg, z0, workers_segments, params)
+    comm.Barrier()
+    z_hat, ztz, ztX = _recv_result(
+        comm, D.shape, valid_shape, workers_segments, return_ztz=return_ztz,
+        verbose=verbose)
+    comm.Barrier()
+    return z_hat, ztz, ztX
+
+
+def _find_grid_size(n_jobs, sig_shape):
+    if len(sig_shape) == 1:
+        return (n_jobs,)
+    elif len(sig_shape) == 2:
+        height, width = sig_shape
+        w_world, h_world = 1, n_jobs
+        w_ratio = width * n_jobs / height
+        for i in range(2, n_jobs + 1):
+            if n_jobs % i != 0:
                 continue
-            j = self.n_jobs // i
+            j = n_jobs // i
             ratio = width * j / (height * i)
             if abs(ratio - 1) < abs(w_ratio - 1):
                 w_ratio = ratio
                 w_world, h_world = i, j
         return w_world, h_world
-
-    def _send_task(self, X, D, lmbd):
-        n_atoms, n_channels, height_atom, width_atom = D.shape
-        n_channels, height, width = X.shape
-
-        # Compute shape for the valid image
-        height_valid = height - height_atom + 1
-        width_valid = width - width_atom + 1
-
-        if self.w_world == 'auto':
-            w_world, h_world = self._find_grid_size(width, height)
-        else:
-            w_world, h_world = self.w_world, self.n_jobs // self.w_world
-            assert self.n_jobs % self.w_world == 0
-
-        # Share constants
-        alpha_k = np.sum(np.mean(D * D, axis=1),
-                         axis=(1, 2), keepdims=True)
-        alpha_k += (alpha_k == 0)
-
-        DD = np.mean([[[fftconvolve(dk0, dk1, mode='full')
-                        for dk0, dk1 in zip(d0, d1)]
-                       for d1 in D]
-                      for d0 in D[:, :, ::-1, ::-1]], axis=2)
-
-        self._broadcast_array(alpha_k)
-        self._broadcast_array(DD)
-        self._broadcast_array(D)
-
-        # Send the constants of the algorithm
-        max_iter = max(1, self.max_iter // self.n_jobs)
-        N = np.array([float(width), float(height),
-                      float(w_world), float(lmbd), float(self.tol),
-                      float(self.timeout), float(max_iter),
-                      float(self.verbose), float(self.logging),
-                      float(self.n_seg), float(self.positive),
-                      float(self.algorithm), float(self.patience)],
-                     'd')
-        self._broadcast_array(N)
-
-        # Share the work between the processes
-        sig = np.array(X, dtype='d')
-        height_worker = height_valid // h_world
-        width_worker = width_valid // w_world
-        expect = []
-        for i in range(h_world):
-            h_end = (i+1)*height_worker + height_atom - 1
-            if i == h_world - 1:
-                h_end = height
-            for j in range(w_world):
-                dest = i * w_world + j
-                print(dest, TAG_ROOT + dest)
-                w_end = (j+1) * width_worker + width_atom - 1
-                if j == w_world - 1:
-                    w_end = width
-                print("send", sig[:, i*height_worker:h_end,
-                                     j*width_worker:w_end].shape)
-                self._comm.Send([sig[:, i*height_worker:h_end,
-                                     j*width_worker:w_end].flatten(),
-                                MPI.DOUBLE], dest, tag=TAG_ROOT + dest)
-                expect += [sig[0, i*height_worker, j*width_worker],
-                           sig[-1, h_end-1, w_end-1]]
-        self.t_start = time()
-        self._confirm_array(expect)
-        self.height_valid, self.height_worker = height_valid, height_worker
-        self.width_valid, self.width_worker = width_valid, width_worker
-
-        # Wait end of initialization
-        self._comm.Barrier()
-        self.t_init = time() - self.t_start
-        if self.verbose > 1:
-            print('End initialisation - {:.4}s'.format(self.t_init))
-
-    def end(self):
-        # reduce_pt
-        self._comm.Barrier()
-        log.debug("End computation, gather result")
-
-        raise RuntimeError()
-        self._gather()
-
-        log.debug("DICOD - Clean end")
-
-    def _gather(self):
-        K, L, L_proc = self.K, self.L, self.L_proc
-        pt = np.empty((K, L), 'd')
-
-        for i in range(self.n_jobs):
-            off = i*self.L_proc
-            L_proc_i = min(off+L_proc, L)-off
-            gpt = np.empty(K*L_proc_i, 'd')
-            self._comm.Recv([gpt, MPI.DOUBLE], i, tag=200+i)
-            pt[:, i*L_proc:(i+1)*L_proc] = gpt.reshape((K, -1))
-
-        cost = np.empty(self.n_jobs, 'd')
-        iterations = np.empty(self.n_jobs, 'i')
-        times = np.empty(self.n_jobs, 'd')
-        init_times = np.empty(self.n_jobs, 'd')
-        self._comm.Gather(None, [cost, MPI.DOUBLE],
-                          root=MPI.ROOT)
-        self._comm.Gather(None, [iterations, MPI.INT],
-                          root=MPI.ROOT)
-        self._comm.Gather(None, [times, MPI.DOUBLE],
-                          root=MPI.ROOT)
-        self._comm.Gather(None, [init_times, MPI.DOUBLE],
-                          root=MPI.ROOT)
-        self.cost = np.sum(cost)
-        self.iteration = np.sum(iterations)
-        self.time = times.max()
-        log.debug("Iterations {}".format(iterations))
-        log.debug("Times {}".format(times))
-        log.debug("Cost {}".format(cost))
-        self.pb.pt = pt
-        self.pt_dbg = np.copy(pt)
-        log.info('End for {} : iteration {}, time {:.4}s'
-                 .format(self, self.iteration, self.time))
-
-        if self.logging:
-            self._log(iterations)
-
-        self._comm.Barrier()
-        self.runtime = time()-self.t_start
-        log.debug('Total time: {:.4}s'.format(self.runtime))
-
-    def _log(self, iterations):
-        self._comm.Barrier()
-        pb, L = self.pb, self.L
-        updates, updates_t, updates_skip = [], [], []
-        for id_worker, n_iter in enumerate(iterations):
-            _log = np.empty(4 * n_iter)
-            self._comm.Recv([_log, MPI.DOUBLE], id_worker, tag=300 + id_worker)
-            updates += [(int(_log[4 * i]), _log[4 * i + 2])
-                        for i in range(n_iter)]
-            updates_t += [_log[4 * i + 1] for i in range(n_iter)]
-            updates_skip += [_log[4 * i + 3] for i in range(n_iter)]
-
-        i0 = np.argsort(updates_t)
-        self.next_log = 1
-        pb.reset()
-        log.debug('Start logging cost')
-        t = self.t_init
-        it = 0
-        for i in i0:
-            if it + 1 >= self.next_log:
-                self.record(it, t, pb.cost(pb.pt))
-            j, du = updates[i]
-            t = updates_t[i] + self.t_init
-            pb.pt[j // L, j % L] += du
-            it += 1 + updates_skip[i]
-        self.log_update = (updates_t, updates)
-        log.debug('End logging cost')
-
-    def gather_AB(self):
-        K, S, d = self.K, self.S, self.d
-        A = np.empty(K*K*S, 'd')
-        B = np.empty(d*K*S, 'd')
-        self._comm.Barrier()
-        log.debug("End computation, gather result")
-
-        self._comm.Reduce(None, [A, MPI.DOUBLE], op=MPI.SUM,
-                          root=MPI.ROOT)
-        self._comm.Reduce(None, [B, MPI.DOUBLE], op=MPI.SUM,
-                          root=MPI.ROOT)
-
-        iterations = np.empty(self.n_jobs, 'i')
-        self._comm.Gather(None, [iterations, MPI.INT],
-                          root=MPI.ROOT)
-        self.iteration = np.sum(iterations)
-        log.debug("Iterations {}".format(iterations))
-
-        self._comm.Barrier()
-        self.gather()
-        return A, B
-
-    def _broadcast_array(self, arr):
-        arr_shape = np.array(arr.shape, dtype='i')
-        arr = np.array(arr.flatten(), dtype='d')
-        N = np.array([arr.shape[0], len(arr_shape)], dtype='i')
-
-        # Send the data and shape of the numpy array
-        self._comm.Bcast([N, MPI.INT], root=MPI.ROOT)
-        self._comm.Bcast([arr_shape, MPI.INT], root=MPI.ROOT)
-        self._comm.Bcast([arr, MPI.DOUBLE], root=MPI.ROOT)
-
-    def _confirm_array(self, expect):
-        '''Aux function to confirm that we passed the correct array
-        '''
-        expect = np.array(expect)
-        gathering = np.empty(expect.shape, 'd')
-        self._comm.Gather(None, [gathering, MPI.DOUBLE],
-                          root=MPI.ROOT)
-        assert (np.allclose(expect, gathering)), (
-            expect, gathering, 'Fail to transmit array')
-
-    def p_update(self):
-        return 0
-
-    def _stop(self, dz):
-        return True
+    else:
+        raise NotImplementedError("")
 
 
-if __name__ == "__main__":
-    print("Hello world! :", os.getpid())
-    parent_comm = MPI.Comm.Get_parent()
-    parent_comm.Barrier()
-    print("ciao")
-    parent_comm.Disconnect()
+def _spawn_workers(n_jobs, hostfile):
+    info = MPI.Info.Create()
+    # info.Set("map_bynode", '1')
+    if hostfile and os.path.exists(hostfile):
+        info.Set("hostfile", hostfile)
+    script_name = os.path.join(os.path.dirname(__file__),
+                               "_dicod_worker.py")
+    if flags.INTERACTIVE_PROCESSES:
+        comm = MPI.COMM_SELF.Spawn(
+            interactive_exec, args=interactive_args + [script_name],
+            maxprocs=n_jobs, info=info)
+
+    else:
+        comm = MPI.COMM_SELF.Spawn(sys.executable, args=[script_name],
+                                   maxprocs=n_jobs, info=info)
+    return comm
+
+
+def _send_task(comm, X, D, reg, z0, workers_segments, params):
+    t_start = time()
+    n_atoms, n_channels, *atom_shape = D.shape
+
+    comm.bcast(params, root=MPI.ROOT)
+    broadcast_array(comm, D)
+
+    X = np.array(X, dtype='d')
+    if params['debug']:
+        X_alpha = np.zeros(X.shape, 'd')
+
+    for i_seg in range(workers_segments.effective_n_seg):
+        if params['has_z0']:
+            worker_slice = workers_segments.get_seg_slice(i_seg)
+            comm.Send([z0[worker_slice].ravel(), MPI.DOUBLE],
+                      dest=i_seg, tag=constants.TAG_ROOT + i_seg)
+        seg_bounds = workers_segments.get_seg_bounds(i_seg)
+        X_worker_slice = (Ellipsis,) + tuple([
+            slice(start, end + size_atom_ax - 1)
+            for (start, end), size_atom_ax in zip(seg_bounds, atom_shape)
+        ])
+
+        comm.Send([X[X_worker_slice].ravel(), MPI.DOUBLE],
+                  dest=i_seg, tag=constants.TAG_ROOT + i_seg)
+        if params['debug']:
+            X_worker = np.empty(X_alpha[X_worker_slice].shape, 'd')
+            comm.Recv([X_worker.ravel(), MPI.DOUBLE],
+                      source=i_seg, tag=constants.TAG_ROOT + i_seg)
+            X_alpha[X_worker_slice] += X_worker
+
+    if params['debug']:
+        import matplotlib.pyplot as plt
+        plt.imshow(np.clip(X_alpha.swapaxes(0, 2), 0, 1))
+        plt.show()
+        assert (np.sum(X_alpha[0, 0] == 0.5) ==
+                3 * (atom_shape[-1] - 1) *
+                (workers_segments.n_seg_per_axis[0] - 1)
+                )
+
+    comm.Barrier()
+
+    t_init = time() - t_start
+    if params['verbose'] > 0:
+        print('\r[DICOD-{}:INFO] End initialization - {:.4}s'
+              .format(workers_segments.effective_n_seg, t_init))
+    return
+
+
+def _recv_result(comm, D_shape, valid_shape, workers_segments,
+                 return_ztz=False, verbose=0):
+    n_atoms, n_channels, *atom_shape = D_shape
+
+    t_start = time()
+
+    inner = not flags.GET_OVERLAP_Z_HAT
+
+    z_hat = np.empty((n_atoms,) + valid_shape, dtype='d')
+    for i_seg in range(workers_segments.effective_n_seg):
+        worker_shape = workers_segments.get_seg_shape(
+            i_seg, inner=inner)
+        worker_slice = workers_segments.get_seg_slice(
+            i_seg, inner=inner)
+        z_worker = np.zeros((n_atoms,) + worker_shape, 'd')
+        comm.Recv([z_worker.ravel(), MPI.DOUBLE], source=i_seg,
+                  tag=constants.TAG_ROOT + i_seg)
+        z_hat[worker_slice] = z_worker
+
+    if return_ztz:
+        ztz_shape = tuple([2 * size_atom_ax - 1
+                          for size_atom_ax in atom_shape])
+        ztz = np.zeros((n_atoms, n_atoms, *ztz_shape), dtype='d')
+        comm.Reduce(None, [ztz, MPI.DOUBLE], MPI.SUM, root=MPI.ROOT)
+
+        ztX = np.zeros((n_atoms, n_channels) + tuple(atom_shape), dtype='d')
+        comm.Reduce(None, [ztX, MPI.DOUBLE], MPI.SUM, root=MPI.ROOT)
+    else:
+        ztz, ztX = None, None
+
+    stats = comm.gather(None, root=MPI.ROOT)
+    n_coordinate_updates = np.sum(stats, axis=0)[0]
+    runtime = np.max(stats, axis=0)[1]
+    if verbose > 0:
+        print("\r[DICOD-{}:INFO] converged in {:.3f}s with {:.0f} coordinate "
+              "updates.".format(workers_segments.effective_n_seg, runtime,
+                                n_coordinate_updates))
+
+    t_reduce = time() - t_start
+    if verbose >= 5:
+        print('\r[DICOD-{}:DEBUG] End finalization - {:.4}s'
+              .format(workers_segments.effective_n_seg, t_reduce))
+    return z_hat, ztz, ztX

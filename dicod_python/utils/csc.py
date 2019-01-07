@@ -3,6 +3,7 @@
 author : thomas.moreau@inria.fr
 """
 
+import numba
 import numpy as np
 from scipy.signal import fftconvolve
 
@@ -12,11 +13,12 @@ def compute_norm_atoms(D):
 
     Parameters
     ----------
-    D : ndarray, shape (n_atoms, n_channels, height_atom, width_atom)
+    D : ndarray, shape (n_atoms, n_channels, *atom_shape)
         Current dictionary for the sparse coding
     """
     # Average over the channels and sum over the size of the atom
-    norm_atoms = np.sum(D * D, axis=(1, 2, 3), keepdims=True)
+    sum_axis = tuple(range(1, D.ndim))
+    norm_atoms = np.sum(D * D, axis=sum_axis, keepdims=True)
     norm_atoms += (norm_atoms == 0)
     return norm_atoms[:, 0]
 
@@ -26,19 +28,76 @@ def compute_DtD(D):
 
     Parameters
     ----------
-    D : ndarray, shape (n_atoms, n_channels, height_atom, width_atom)
+    D : ndarray, shape (n_atoms, n_channels, *atom_shape)
         Current dictionary for the sparse coding
     """
     # Average over the channels
+    flip_axis = tuple(range(2, D.ndim))
     DtD = np.sum([[[fftconvolve(di_p, dj_p, mode='full')
                     for di_p, dj_p in zip(di, dj)]
                    for dj in D]
-                  for di in D[:, :, ::-1, ::-1]], axis=2)
+                  for di in np.flip(D, axis=flip_axis)], axis=2)
     return DtD
 
 
+def compute_ztz(z, atom_shape, padding_shape=None):
+    """
+    ztz.shape = n_atoms, n_atoms, 2 * atom_shape - 1
+    z.shape = n_atoms, n_times - n_times_atom + 1)
+    """
+    # TODO: benchmark the cross correlate function of numpy
+    n_atoms, *_ = z.shape
+    flip_axis = tuple(range(1, z.ndim))
+    ztz_shape = (n_atoms, n_atoms) + tuple([
+        2 * size_atom_ax - 1 for size_atom_ax in atom_shape
+    ])
+
+    if padding_shape is None:
+        padding_shape = [(size_atom_ax - 1, size_atom_ax - 1)
+                         for size_atom_ax in atom_shape]
+
+    padding_shape = np.asarray([(0, 0)] + padding_shape, dtype='i')
+    inner_slice = (Ellipsis,) + tuple([
+        slice(size_atom_ax - 1, - size_atom_ax + 1)
+        for size_atom_ax in atom_shape])
+
+    z_pad = np.pad(z, padding_shape, mode='constant')
+    z = z_pad[inner_slice]
+
+    # compute the cross correlation between z and z_pad
+    ztz = np.array([[fftconvolve(z_pad_k0, z_k, mode='valid')
+                     for z_k in z]
+                    for z_pad_k0 in np.flip(z_pad, axis=flip_axis)])
+    assert ztz.shape == ztz_shape, (ztz.shape, ztz_shape)
+    return ztz
+
+
+def compute_ztX(z, X):
+    """
+    z.shape = n_atoms, n_times - n_times_atom + 1)
+    X.shape = n_channels, n_times
+    ztX.shape = n_atoms, n_channels, n_times_atom
+    """
+    n_atoms, *valid_shape = z.shape
+    n_channels, *sig_shape = X.shape
+    atom_shape = tuple(
+        [size_ax - size_valid_ax + 1
+         for size_ax, size_valid_ax in zip(sig_shape, valid_shape)])
+
+    ztX = np.zeros((n_atoms, n_channels, *atom_shape))
+    for k, *pt in zip(*z.nonzero()):
+        pt = tuple(pt)
+        X_slice = (Ellipsis,) + tuple([
+            slice(v, v + size_atom_ax)
+            for v, size_atom_ax in zip(pt, atom_shape)
+        ])
+        ztX[k] += z[k][pt] * X[X_slice]
+
+    return ztX
+
+
 def soft_thresholding(x, mu, positive=False):
-    """Soft-thresholding operator
+    """Soft-thresholding point-wise operator
 
     Parameters
     ----------

@@ -100,7 +100,7 @@ class Segmentation:
             self.seg_shape.append(size_seg_ax)
             self.effective_n_seg *= n_seg_ax
 
-    def get_seg_bounds(self, i_seg, only_inner=False):
+    def get_seg_bounds(self, i_seg, inner=False):
         """Return a segment's boundaries."""
 
         seg_bounds = []
@@ -114,22 +114,22 @@ class Segmentation:
             ax_bound_end = ax_bound_start + size_seg_ax
             if (ax_i_seg + 1) % n_seg_ax == 0:
                 ax_bound_end = end
-            if not only_inner:
+            if not inner:
                 ax_bound_end = min(ax_bound_end + out, size_full_ax)
                 ax_bound_start = max(ax_bound_start - out, 0)
             seg_bounds.append([ax_bound_start, ax_bound_end])
             i_seg %= ax_offset
         return seg_bounds
 
-    def get_seg_slice(self, i_seg, only_inner=False):
+    def get_seg_slice(self, i_seg, inner=False):
         """Return a segment's slice"""
-        seg_bounds = self.get_seg_bounds(i_seg, only_inner=only_inner)
+        seg_bounds = self.get_seg_bounds(i_seg, inner=inner)
         return (Ellipsis,) + tuple([slice(s, e) for s, e in seg_bounds])
 
-    def get_seg_shape(self, i_seg, only_inner=False):
+    def get_seg_shape(self, i_seg, inner=False):
         """Return a segment's shape"""
-        seg_bounds = self.get_seg_bounds(i_seg, only_inner=only_inner)
-        return tuple(np.diff(seg_bounds, axis=1).squeeze())
+        seg_bounds = self.get_seg_bounds(i_seg, inner=inner)
+        return tuple(np.diff(seg_bounds, axis=1).squeeze(axis=1))
 
     def find_segment(self, pt):
         """Find the indice of the segment containing the given point.
@@ -191,7 +191,7 @@ class Segmentation:
                                  "to the segmentation size.")
 
         i_seg = self.find_segment(pt)
-        seg_bounds = self.get_seg_bounds(i_seg, only_inner=True)
+        seg_bounds = self.get_seg_bounds(i_seg, inner=True)
 
         segments = [i_seg]
         axis_offset = self.effective_n_seg
@@ -303,14 +303,14 @@ class Segmentation:
             res += [v - offset]
         return tuple(res)
 
-    def is_inner_coordinate(self, i_seg, pt):
+    def is_contained_coordinate(self, i_seg, pt, inner=False):
         """Ensure that a given point is in the bounds to be a local coordinate.
         """
-        seg_bounds_inner = self.get_seg_bounds(i_seg, only_inner=True)
+        seg_bounds = self.get_seg_bounds(i_seg, inner=inner)
         pt = self.get_global_coordinate(i_seg, pt)
         is_valid = True
-        for v, (start_in_ax, end_in_ax) in zip(pt, seg_bounds_inner):
-            is_valid &= (start_in_ax <= v < end_in_ax)
+        for v, (stat_ax, end_ax) in zip(pt, seg_bounds):
+            is_valid &= (stat_ax <= v < end_ax)
         return is_valid
 
     def check_area_contained(self, i_seg, pt, radius):
@@ -321,10 +321,10 @@ class Segmentation:
 
         seg_bounds = self.get_seg_bounds(i_seg)
         seg_shape = self.get_seg_shape(i_seg)
-        seg_bounds_inner = self.get_seg_bounds(i_seg, only_inner=True)
+        seg_bounds_inner = self.get_seg_bounds(i_seg, inner=True)
 
         update_bounds = [[v - r, v + r + 1] for v, r in zip(pt, radius)]
-        assert self.is_inner_coordinate(i_seg, pt)
+        assert self.is_contained_coordinate(i_seg, pt, inner=True)
         for i in range(self.n_axis):
             assert (update_bounds[i][0] >= 0 or
                     seg_bounds[i][0] == seg_bounds_inner[i][0])
@@ -352,7 +352,7 @@ class Segmentation:
         """
         seg_bounds = self.get_seg_bounds(i_seg)
         seg_shape = self.get_seg_shape(i_seg)
-        seg_bounds_inner = self.get_seg_bounds(i_seg, only_inner=True)
+        seg_bounds_inner = self.get_seg_bounds(i_seg, inner=True)
 
         update_bounds = [[min(max(0, v - r), size_valid_ax),
                           max(min(v + r + 1, size_valid_ax), 0)]
@@ -383,3 +383,16 @@ class Segmentation:
             post_slice = post_slice[1:]
 
         return updated_slices
+
+    def get_padding_to_overlap(self, i_seg):
+
+        seg_bounds = self.get_seg_bounds(i_seg)
+        seg_inner_bounds = self.get_seg_bounds(i_seg, inner=True)
+        padding_shape = []
+        for overlap_ax, (start_ax, end_ax), (start_in_ax, end_in_ax) in zip(
+                self.overlap, seg_bounds, seg_inner_bounds):
+            padding_shape += [
+                (overlap_ax - (start_in_ax - start_ax),
+                 overlap_ax - (end_ax - end_in_ax))
+            ]
+        return padding_shape

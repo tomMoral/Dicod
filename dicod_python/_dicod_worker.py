@@ -1,358 +1,556 @@
 # Authors: Thomas Moreau <thomas.moreau@inria.fr>
 
+import time
 import numpy as np
 from mpi4py import MPI
 
-from scipy.signal import fftconvolve
+from dicod_python.utils import check_random_state
+from dicod_python.utils import debug_flags as flags
+from dicod_python.utils import constants as constants
+from dicod_python.utils.segmentation import Segmentation
+from dicod_python.utils.mpi import recv_broadcasted_array
+from dicod_python.utils.csc import compute_ztz, compute_ztX
+from dicod_python.utils.csc import compute_DtD, compute_norm_atoms
 
-from faulthandler import dump_traceback_later
-
-ALGO_GS = 0
-ALGO_RANDOM = 1
-
-
-TAG_ROOT = 4242
+from dicod_python.coordinate_descent import _select_coordinate
+from dicod_python.coordinate_descent import _check_convergence
+from dicod_python.coordinate_descent import _init_beta, coordinate_update
 
 
-class DICODWorker():
-    def __init__(self):
-        self._comm = MPI.Comm.Get_parent()
+class DICODWorker:
+    """Worker for DICOD, running LGCD locally and using MPI for communications
 
-        self.rank = self._comm.Get_rank()
-        self.n_jobs = self._comm.Get_size()
+    Parameters
+    ----------
+    backend: str
+        Backend used to communicate between workers. Available backends are
+        { 'mpi' }.
+    """
 
-        print("{} - {}/{} started".format(
-            MPI.Get_processor_name(), self.rank, self.n_jobs))
-        self._comm.Barrier()
+    def __init__(self, backend):
+        self._backend = backend
 
-    def shutdown(self):
-        print("Worker{} finished".format(self.rank))
-        print("ciao!")
-        self._comm.Barrier()
-        self._comm.Disconnect()
+        # Retrieve different constants from the base communicator and store
+        # then in the class.
+        self.rank, self.n_jobs, params, self.D = self.get_params()
 
-    def _receive_array(self):
-        N = np.empty(2, dtype='i')
-        self._comm.Bcast([N, MPI.INT], root=0)
+        self.tol = params['tol']
+        self.reg = params['reg']
+        self.n_seg = params['n_seg']
+        self.timing = params['timing']
+        self.verbose = params['verbose']
+        self.strategy = params['strategy']
+        self.max_iter = params['max_iter']
+        self.z_positive = params['z_positive']
+        self.return_ztz = params['return_ztz']
+        self.use_soft_lock = params['use_soft_lock']
 
-        arr_shape = np.empty(N[1], dtype='i')
-        self._comm.Bcast([arr_shape, MPI.INT], root=0)
-        
-        arr = np.empty(N[0], dtype='d')
-        self._comm.Bcast([arr, MPI.DOUBLE], root=0)
-        return arr.reshape(arr_shape)
+        self.random_state = params['random_state']
+        if isinstance(self.random_state, int):
+            self.random_state += self.rank
 
-    def _receive_task(self):
-        # receive constants
-        self.alpha_k = self._receive_array()
-        self.DD = self._receive_array()
-        self.D = self._receive_array()
+        self.size_msg = len(params['valid_shape']) + 2
 
-        constants = self._receive_array()
+        self.info("Start DICOD with {} workers and strategy '{}'", self.n_jobs,
+                  self.strategy, global_msg=True)
 
-        (width, height, self.w_world, self.lmbd, self.tol,
-         self.timeout, self.max_iter, self.verbose, self.logging, self.n_seg,
-         self.positive, self.algorithm, self.patience) = constants
+        # Compute the shape of the worker segment.
+        n_atoms, n_channels, *atom_shape = self.D.shape
+        self.overlap = [size_atom_ax - 1 for size_atom_ax in atom_shape]
+        self.workers_segments = Segmentation(
+            n_seg=params['workers_topology'],
+            signal_shape=params['valid_shape'],
+            overlap=self.overlap)
 
-        # convert back some quantities to integers
-        height, width = int(height), int(width)
-        self.w_world = int(self.w_world)
-
-        # Infer some topological information
-        self.h_world = self.n_jobs // self.w_world
-        self.w_rank = self.rank % self.w_world
-        self.h_rank = self.rank // self.w_world
-
-        if self.rank == 0 and self.verbose > 5:
-            print("DEBUG:jobs - Start with algorithm : {}"
-                  .format("Random" if self.algorithm else "Gauss-Southwell"))
-
-        # Compute the size of the signal for this worker
-        _, n_channels, height_atom, width_atom = self.D.shape
-        height_valid = height - height_atom + 1
-        width_valid = width - width_atom + 1
-        height_worker = height_valid // self.h_world
-        width_worker = width_valid // self.w_world
-        height_offset = self.h_rank * height_worker
-        width_offset = self.w_rank * width_worker
-        if self.h_rank == self.h_world - 1:
-            height_worker = height_valid - height_offset
-
-        if self.w_rank == self.w_world - 1:
-            width_worker = width_valid - width_offset
-
-        self.height_worker, self.width_worker = height_worker, width_worker
-
-        X_shape = (n_channels, height_worker + height_atom - 1,
-                   width_worker + width_atom - 1)
-        print(self.rank, X_shape)
-        X_shape = [int(v) for v in X_shape]
-        self.X_worker = np.empty(X_shape, dtype='d')
-        print(self.rank, "recv", TAG_ROOT + self.rank)
-        self._comm.Recv([self.X_worker.ravel(), MPI.DOUBLE], source=0,
-                        tag=TAG_ROOT + self.rank)
-
-        import matplotlib.pyplot as plt
-        plt.imshow(self.X_worker.swapaxes(0, 2))
-        plt.savefig("X_worker{}.png".format(self.rank))
-
-        # Confirm the received arrays
-        self._comm.Gather([self.X_worker.ravel()[[0, -1]], MPI.DOUBLE], None,
-                          root=0)
-        self._comm.Barrier()
-
-    def _init_beta(self, X):
-        # Init beta with the gradient in the current point 0
-        beta = np.sum(
-            [[fftconvolve(dkp, res_p, mode='valid')
-              for dkp, res_p in zip(dk, -X)]
-             for dk in self.D[:, :, ::-1, ::-1]], axis=1)
-
-        dz_opt = np.maximum(-beta - self.lmbd, 0) / self.alpha_k
-        return beta, dz_opt
-
-    def _lgcd(self):
-        n_atoms, n_channels, height_atom, width_atom = self.D.shape
-        height_worker, width_worker = self.height_worker, self.width_worker
-        n_coordinates = n_atoms * height_worker * width_worker
-        z_hat = np.zeros((n_atoms, height_worker, width_worker), dtype='d')
-
-        beta, dz_opt = self._init_beta(self.X_worker)
-
-        assert beta.shape == z_hat.shape, (beta.shape, z_hat.shape)
-        assert dz_opt.shape == z_hat.shape, (dz_opt.shape, z_hat.shape)
-
-        if self.n_seg == 0:
-            # use the default value for n_seg, ie 2x the size of D
-            height_n_seg = max(height_worker // (2 * height_atom), 1)
-            width_n_seg = max(width_worker // (2 * width_atom), 1)
+        # Receive X and z from the master node.
+        worker_shape = self.workers_segments.get_seg_shape(self.rank)
+        X_shape = (n_channels,) + tuple([
+            size_worker_ax + size_atom_ax - 1
+            for size_worker_ax, size_atom_ax in zip(worker_shape, atom_shape)
+        ])
+        if params['has_z0']:
+            z0_shape = (n_atoms,) + worker_shape
+            self.z0 = self.get_signal(z0_shape, params['debug'])
         else:
-            height_n_seg = width_n_seg = self.n_seg
-        n_seg = width_n_seg * height_n_seg
-        height_seg = (height_worker // height_n_seg) + 1
-        width_seg = (width_worker // width_n_seg) + 1
+            self.z0 = None
+        self.X_worker = self.get_signal(X_shape, params['debug'])
 
-        accumulator = n_seg
-        active_segs = np.array([True] * n_seg)
-        i_seg = 0
-        seg_bounds = [[0, height_seg], [0, width_seg]]
-        k0, h0, w0 = 0, -1, -1
-        for ii in range(int(self.max_iter)):
+        # Compute the local segmentation for LGCD algorithm
 
-            k0, h0, w0, dz = self._select_coordinate(
-                dz_opt, active_segs[i_seg], seg_bounds)
-            if self.algorithm == ALGO_RANDOM:
-                # accumulate on all coordinates from the stopping criterion
-                if ii % n_coordinates == 0:
-                    accumulator = 0
-                accumulator += abs(dz)
+        # If n_seg is not specified, compute the shape of the local segments
+        # as the size of an interfering zone.
+        n_seg = self.n_seg
+        local_seg_shape = None
+        if self.n_seg == 'auto':
+            n_seg, local_seg_shape = None, []
+            for size_atom_ax in atom_shape:
+                local_seg_shape.append(2 * size_atom_ax - 1)
+
+        # Get local inner bounds. First, compute the seg_bound without overlap
+        # in local coordinates and then convert the bounds in the local
+        # coordinate system.
+        inner_bounds = self.workers_segments.get_seg_bounds(
+            self.rank, inner=True)
+        inner_bounds = np.transpose([
+            self.workers_segments.get_local_coordinate(self.rank, bound)
+            for bound in np.transpose(inner_bounds)])
+
+        self.local_segments = Segmentation(
+            n_seg=n_seg, seg_shape=local_seg_shape, inner_bounds=inner_bounds,
+            full_shape=worker_shape)
+
+        self.synchronize_workers()
+
+    def run(self):
+
+        self.init_cd_variables()
+
+        # Initialization of the algorithm variables
+        random_state = check_random_state(self.random_state)
+        i_seg = -1
+        n_coordinate_updates = 0
+        accumulator = 0
+        k0, pt0 = 0, None
+        self.n_paused_worker = 0
+
+        # Initialize the solution
+        n_atoms = self.D.shape[0]
+        seg_shape = self.workers_segments.get_seg_shape(self.rank)
+        seg_in_shape = self.workers_segments.get_seg_shape(
+            self.rank, inner=True)
+        if self.z0 is None:
+            self.z_hat = np.zeros((n_atoms,) + seg_shape)
+        else:
+            self.z_hat = self.z0
+        n_coordinates = n_atoms * np.prod(seg_in_shape)
+
+        t_start = time.time()
+        diverging = False
+        if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
+            import ipdb; ipdb.set_trace()  # noqa: E702
+        for ii in range(self.max_iter):
+            # Display the progress of the algorithm
+            self.progress(ii, max_ii=self.max_iter, unit="iterations")
+
+            # Process incoming messages
+            self.process_messages()
+
+            # Increment the segment and select the coordinate to update
+            i_seg = self.local_segments.increment_seg(i_seg)
+            if self.local_segments.is_active_segment(i_seg):
+                k0, pt0, dz = _select_coordinate(
+                    self.dz_opt, self.local_segments, i_seg,
+                    strategy=self.strategy, random_state=random_state)
+            else:
+                k0, pt0, dz = None, None, 0
+
+            # update the accumulator for 'random' strategy
+            accumulator = max(abs(dz), accumulator)
+
+            # If requested, check that the update chosen only have an impact on
+            # the segment and its overlap area.
+            if flags.CHECK_UPDATE_CONTAINED and pt0 is not None:
+                self.workers_segments.check_area_contained(self.rank,
+                                                           pt0, self.overlap)
+
+            # Check if gthe coordinate is soft-locked or not.
+            soft_locked = False
+            if pt0 is not None and self.use_soft_lock:
+                lock_slices = self.workers_segments.get_touched_overlap_slices(
+                    self.rank, pt0, self.overlap)
+                max_on_lock = 0
+                for u_slice in lock_slices:
+                    # print(self.rank, inner_bounds, u_slice, max_on_lock)
+                    max_on_lock = max(abs(self.dz_opt[u_slice]).max(),
+                                      max_on_lock)
+                soft_locked = max_on_lock > abs(dz)
 
             # Update the selected coordinate and beta, only if the update is
-            # greater than the convergence tolerance.
-            if abs(dz) > self.tol:
-                # update the selected coordinate
-                z_hat[k0, h0, w0] += dz
+            # greater than the convergence tolerance and is contained in the
+            # worker. If the update is not in the worker, this will
+            # effectively work has a soft lock to prevent interferences.
+            if abs(dz) > self.tol and not soft_locked:
+                n_coordinate_updates += 1
 
-                # update beta
-                beta, dz_opt, accumulator, active_segs = self._update_beta(
-                    beta, dz_opt, accumulator, active_segs, z_hat,
-                    dz, k0, h0, w0, seg_bounds, i_seg, width_n_seg)
+                # update the selected coordinate and beta
+                self.coordinate_update(k0, pt0, dz)
 
-            elif active_segs[i_seg]:
-                accumulator -= 1
-                active_segs[i_seg] = False
+                # Re-activate the segments where beta have been updated to
+                # ensure convergence.
+                touched_segments = self.local_segments.get_touched_segments(
+                    pt=pt0, radius=self.overlap)
+                n_changed_status = self.local_segments.set_active_segments(
+                    touched_segments)
 
-            if self.logging:
+                # Notify neighboring workers of the update if needed.
+                pt_global = self.workers_segments.get_global_coordinate(
+                    self.rank, pt0)
+                workers = self.workers_segments.get_touched_segments(
+                    pt=pt_global, radius=self.overlap
+                )
+                msg = np.array([k0, *pt_global, dz], 'd')
+                self.notify_neighbors(msg, workers)
+
+                # If requested, check that all inactive segments have no
+                # coefficients to update over the tolerance.
+                if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
+                    self.local_segments.test_active_segments(
+                        self.dz_opt, self.tol)
+
+            # Inactivate the current segment if the magnitude of the update is
+            # too small. This only work when using LGCD.
+            if abs(dz) <= self.tol and self.strategy == "greedy":
+                self.local_segments.set_inactive_segments(i_seg)
+
+            # When workers are diverging, finish the worker to avoid having to
+            # wait until max_iter for stopping the algorithm.
+            if abs(dz) >= 1e2:
+                self.info("diverging worker")
+                self.wait_status_changed(status=constants.STATUS_FINISHED)
+                diverging = True
+                break
+
+            if self.timing:
                 # TODO: logging stuff
                 pass
 
-            # check stopping criterion
-            if self.algorithm == ALGO_GS:
-                if accumulator == 0:
-                    if self.verbose > 10:
-                        print('[{}] {} iterations'.format(self.name, ii + 1))
-                    break
-            else:
-                # only check at the last coordinate
-                if (ii + 1) % n_coordinates == 0 and accumulator <= self.tol:
-                    if self.verbose > 10:
-                        print('[{}] {} iterations'.format(self.name, ii + 1))
-                    break
-
-            # increment to next segment
-            i_seg += 1
-            seg_bounds[1][0] += width_seg
-            seg_bounds[1][1] += width_seg
-
-            if seg_bounds[1][0] >= width_worker:
-                # Got to the begining of the next line
-                seg_bounds[1] = [0, width_seg]
-                seg_bounds[0][0] += height_seg
-                seg_bounds[0][1] += height_seg
-
-                if seg_bounds[0][0] >= height_worker:
-                    # reset to first segment
-                    i_seg = 0
-                    seg_bounds = [[0, height_seg], [0, width_seg]]
+            # Check the stopping criterion and if we have locally converged,
+            # wait either for an incoming message or for full convergence.
+            if _check_convergence(self.local_segments, self.tol, ii,
+                                  self.dz_opt, n_coordinates, self.strategy,
+                                  accumulator=accumulator):
+                if self.check_no_transitting_message():
+                    status = self.wait_status_changed()
+                    if status == constants.STATUS_STOP:
+                        self.debug("LGCD converged with {} coordinate "
+                                   "updates", n_coordinate_updates)
+                        break
 
         else:
-            if self.verbose > 10:
-                print('[{}] did not converge'.format(self.name))
+            self.info("Reach maximal iteration. Max of dz_opt is {}.",
+                      abs(self.dz_opt).max())
+            self.wait_status_changed(status=constants.STATUS_FINISHED)
 
-        # Now you can gather z_hat
+        self.synchronize_workers()
+        assert diverging or self.check_no_transitting_message()
+        runtime = time.time() - t_start
+        self.send_result(n_coordinate_updates, runtime)
 
-    def _select_coordinate(self, dz_opt, active_seg, seg_bounds):
-        # Pick a coordinate to update
-        if self.algorithm == ALGO_RANDOM:
-            n_atoms, height_valid, width_valid = dz_opt.shape
-            k0 = np.random.randint(n_atoms)
-            h0 = np.random.randint(height_valid)
-            w0 = np.random.randint(width_valid)
-            dz = dz_opt[k0, h0, w0]
+    def init_cd_variables(self):
 
-        elif self.algorithm == ALGO_GS:
-            # if dZs[i_seg] > tol:
-            start_height_seg, end_height_seg = seg_bounds[0]
-            start_width_seg, end_width_seg = seg_bounds[1]
-            if active_seg:
-                dz_opt_seg = dz_opt[:, start_height_seg:end_height_seg,
-                                    start_width_seg:end_width_seg]
-                i0 = abs(dz_opt_seg).argmax()
-                k0, h0, w0 = np.unravel_index(i0, dz_opt_seg.shape)
-                h0 += start_height_seg
-                w0 += start_width_seg
-                dz = dz_opt[k0, h0, w0]
+        # Pre-compute some quantities
+        constants = {}
+        constants['norm_atoms'] = compute_norm_atoms(self.D)
+        constants['DtD'] = compute_DtD(self.D)
+        self.constants = constants
+
+        # List of all pending messages
+        self.messages = []
+
+        # Initialization of the auxillary variable for LGCD
+        self.beta, self.dz_opt = _init_beta(
+            self.X_worker, self.D, self.reg, z_i=self.z0, constants=constants,
+            z_positive=self.z_positive)
+
+    def coordinate_update(self, k0, pt0, dz, coordinate_exist=True):
+        self.beta, self.dz_opt = coordinate_update(
+            k0, pt0, dz, self.beta, self.dz_opt, self.z_hat, self.D,
+            self.reg, self.constants, self.z_positive,
+            coordinate_exist=coordinate_exist)
+
+    def process_messages(self, worker_status=constants.STATUS_RUNNING):
+        mpi_status = MPI.Status()
+        while MPI.COMM_WORLD.Iprobe(status=mpi_status):
+            src = mpi_status.source
+            tag = mpi_status.tag
+            if tag == constants.TAG_UPDATE_BETA:
+                if worker_status == constants.STATUS_PAUSED:
+                    self.notify_worker_status(constants.TAG_RUNNING_WORKER,
+                                              wait=True)
+                    worker_status = constants.STATUS_RUNNING
+            elif tag == constants.TAG_STOP:
+                worker_status = constants.STATUS_STOP
+            elif tag == constants.TAG_PAUSED_WORKER:
+                self.n_paused_worker += 1
+                assert self.n_paused_worker <= self.n_jobs
+            elif tag == constants.TAG_RUNNING_WORKER:
+                self.n_paused_worker -= 1
+                assert self.n_paused_worker >= 0
+
+            msg = np.empty(self.size_msg, 'd')
+            MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=src,
+                                tag=tag)
+
+            if tag == constants.TAG_UPDATE_BETA:
+                self.message_update_beta(msg)
+
+        if self.n_paused_worker == self.n_jobs:
+            worker_status = constants.STATUS_STOP
+        return worker_status
+
+    def message_update_beta(self, msg):
+        k0, *pt0, dz = msg
+        # print("Recv", self.rank, pt0, dz)
+
+        k0 = int(k0)
+        pt0 = tuple([int(v) for v in pt0])
+        pt0 = self.workers_segments.get_local_coordinate(self.rank, pt0)
+        coordinate_exist = self.workers_segments.is_contained_coordinate(
+            self.rank, pt0, inner=False)
+        self.coordinate_update(k0, pt0, dz, coordinate_exist=coordinate_exist)
+        touched_segment = self.local_segments.get_touched_segments(
+            pt=pt0, radius=self.overlap)
+        n_changed_status = self.local_segments.set_active_segments(
+            touched_segment)
+
+        if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
+            self.local_segments.test_active_segments(self.dz_opt, self.tol)
+
+        if flags.CHECK_BETA:
+            inner_slice = (Ellipsis,) + tuple([
+                slice(start, end)
+                for start, end in self.local_segments.inner_bounds
+            ])
+            beta, dz_opt = _init_beta(
+                self.X_worker, self.D, self.reg, z_i=self.z_hat,
+                constants=self.constants, z_positive=self.z_positive)
+            assert np.allclose(beta[inner_slice], self.beta[inner_slice])
+
+    def notify_neighbors(self, msg, neighbors):
+        assert self.rank in neighbors
+        for i_neighbor in neighbors:
+            if i_neighbor != self.rank:
+                # print("Send", i_neighbor, msg[1:])
+                req = self.send_message(msg, constants.TAG_UPDATE_BETA,
+                                        i_neighbor, wait=False)
+                self.messages.append(req)
+
+    def notify_worker_status(self, tag, i_worker=0, wait=False):
+        # handle the messages from Worker0 to himself.
+        if self.rank == 0 and i_worker == 0:
+            if tag == constants.TAG_PAUSED_WORKER:
+                self.n_paused_worker += 1
+                assert self.n_paused_worker <= self.n_jobs
+            elif tag == constants.TAG_RUNNING_WORKER:
+                self.n_paused_worker -= 1
+                assert self.n_paused_worker >= 0
             else:
-                k0, h0, w0, dz = None, None, None, 0
+                raise ValueError("Got tag {}".format(tag))
+            return
+
+        # Else send the message to the required destination
+        msg = np.empty(self.size_msg, 'd')
+        self.send_message(msg, tag, i_worker, wait=wait)
+
+    def wait_status_changed(self, status=constants.STATUS_PAUSED):
+        self.notify_worker_status(constants.TAG_PAUSED_WORKER)
+        self.debug("paused worker")
+
+        # Wait for all sent message to be processed
+        count = 0
+        while status not in [constants.STATUS_RUNNING, constants.STATUS_STOP]:
+            time.sleep(.005)
+            status = self.process_messages(worker_status=status)
+            if (count % 500) == 0:
+                self.progress(self.n_paused_worker, max_ii=self.n_jobs,
+                              unit="done workers")
+
+        if self.rank == 0 and status == constants.STATUS_STOP:
+            for i_worker in range(1, self.n_jobs):
+                self.notify_worker_status(constants.TAG_STOP, i_worker,
+                                          wait=True)
+        elif status == constants.STATUS_RUNNING:
+            self.debug("wake up")
         else:
-            raise ValueError("'The coordinate selection method should be in "
-                             "{'greedy' | 'random' | 'cyclic'}. Got '%s'."
-                             % (self.algorithm, ))
-        return k0, h0, w0, dz
+            assert status == constants.STATUS_STOP
+        return status
 
-    def _update_beta(self, beta, dz_opt, accumulator, active_segs, z_hat,
-                     dz, k0, h0, w0, seg_bounds, i_seg, width_n_seg):
-        n_atoms, height_valid, width_valid = beta.shape
-        n_atoms, n_channels, height_atom, width_atom = self.D.shape
+    ###########################################################################
+    #     Display utilities
+    ###########################################################################
 
-        # define the bounds for the beta update
-        start_height_up = max(0, h0 - height_atom + 1)
-        end_height_up = min(h0 + height_atom, self.height_worker)
-        start_width_up = max(0, w0 - width_atom + 1)
-        end_width_up = min(w0 + width_atom, self.width_worker)
-        update_slice = (slice(None), slice(start_height_up, end_height_up),
-                        slice(start_width_up, end_width_up))
+    def progress(self, ii, max_ii, unit):
+        if max_ii > 10000 and (ii % 100) != 0:
+            return
+        self._log("progress : {:7.2%} {}", ii / max_ii, unit, level=1,
+                  level_name="PROGRESS", global_msg=True, endline=False)
 
-        # update beta
-        beta_i0 = beta[k0, h0, w0]
-        update_height = end_height_up - start_height_up
-        offset_height = max(0, height_atom - h0 - 1)
-        update_width = end_width_up - start_width_up
-        offset_width = max(0, width_atom - w0 - 1)
-        beta[update_slice] += (
-            self.DD[:, k0, offset_height:offset_height + update_height,
-                    offset_width:offset_width + update_width] * dz
-        )
-        beta[k0, h0, w0] = beta_i0
+    def info(self, msg, *args, global_msg=False):
+        self._log(msg, *args, level=1, level_name="INFO",
+                  global_msg=global_msg)
 
-        # update dz_opt
-        tmp = np.maximum(-beta[update_slice] - self.lmbd, 0) / self.alpha_k
-        dz_opt[update_slice] = tmp - z_hat[update_slice]
-        dz_opt[k0, h0, w0] = 0
+    def debug(self, msg, *args, global_msg=False):
+        self._log(msg, *args, level=5, level_name="DEBUG",
+                  global_msg=global_msg)
 
-        # wake up greedy updates in neighboring segments if beta was updated
-        # outside the segment
-        start_height_seg, end_height_seg = seg_bounds[0]
-        start_width_seg, end_width_seg = seg_bounds[1]
+    def _log(self, msg, *fmt_args, level=0, level_name="None",
+             global_msg=False, endline=True):
+        if self.verbose >= level:
+            if global_msg:
+                if self.rank != 0:
+                    return
+                msg_fmt = constants.GLOBAL_OUTPUT_TAG + msg
+                identity = self.n_jobs
+            else:
+                msg_fmt = constants.WORKER_OUTPUT_TAG + msg
+                identity = self.rank
+            if endline:
+                kwargs = {}
+            else:
+                kwargs = {'end': '', 'flush': True}
+            msg_fmt = msg_fmt.ljust(80)
+            print(msg_fmt.format(level_name, identity, *fmt_args), **kwargs)
 
-        if start_height_up < start_height_seg:
-            # There are segments above the current one and some are impacted
-            # by the current update
-            i_seg_above = i_seg - width_n_seg
-            if start_height_seg > 0:
-                # Above segment
-                accumulator += not active_segs[i_seg_above]
-                active_segs[i_seg_above] = True
-            elif self.h_rank > 0:
-                # Send message to above neighbor (rank - w_world)
-                pass
+    ###########################################################################
+    #     Communication primitives
+    ###########################################################################
 
-            if start_width_up < start_width_seg:
-                # Impact the Top-left corner
-                if start_width_seg > 0 and start_height_seg > 0:
-                    accumulator += not active_segs[i_seg_above - 1]
-                    active_segs[i_seg_above - 1] = True
-                elif (start_height_seg == 0 and self.h_rank > 0
-                        and self.w_rank > 0):
-                    # Send message to above-left neighbor (rank - w_world - 1)
-                    pass
-            if end_width_up > end_width_seg:
-                # Impact the top-right corner
-                if end_width_seg < self.width_worker and start_height_seg > 0:
-                    accumulator += not active_segs[i_seg_above + 1]
-                    active_segs[i_seg_above + 1] = True
-                elif (start_height_seg == 0 and self.h_rank > 0
-                        and self.w_rank < self.w_world):
-                    # Send message to above-right neighbor (rank - w_world + 1)
-                    pass
+    def synchronize_workers(self):
+        if self._backend == "mpi":
+            self._synchronize_workers_mpi()
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
 
-        if start_width_up < start_width_seg:
-            # Impact the left neighbor
-                if start_width_seg > 0:
-                    accumulator += not active_segs[i_seg - 1]
-                    active_segs[i_seg - 1] = True
-                elif self.w_rank > 0:
-                    # Send message to left neighbor (rank - 1)
-                    pass
-        if end_width_up > end_width_seg:
-            # Impact the right neighbor
-                if end_width_seg < self.width_worker:
-                    accumulator += not active_segs[i_seg + 1]
-                    active_segs[i_seg + 1] = True
-                elif self.w_rank < self.w_world:
-                    # Send message to right neighbor (rank + 1)
-                    pass
+    def get_params(self):
+        """Receive the parameter of the algorithm from the master node."""
+        if self._backend == "mpi":
+            return self._get_params_mpi()
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
 
-        if end_height_up > end_height_seg:
-            # There are segments bellow the current one and some are impacted
-            # by the current update
-            i_seg_bellow = i_seg + width_n_seg
-            if end_height_seg < self.height_worker:
-                # Above segment
-                accumulator += not active_segs[i_seg_bellow]
-                active_segs[i_seg_bellow] = True
-            elif self.h_rank < self.h_world:
-                # Send message to bellow neighbor (rank + w_world)
-                pass
+    def get_signal(self, X_shape, debug=False):
+        """Receive the part of the signal to encode from the master node."""
+        if self._backend == "mpi":
+            return self._get_signal_mpi(X_shape, debug=debug)
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
 
-            if start_width_up < start_width_seg:
-                # Impact the Top-left corner
-                if start_width_seg > 0 and end_height_seg < self.height_worker:
-                    accumulator += not active_segs[i_seg_bellow - 1]
-                    active_segs[i_seg_bellow - 1] = True
-                elif (end_width_seg >= self.height_worker
-                        and self.h_rank < self.h_world
-                        and self.w_rank > 0):
-                    # Send message to above-left neighbor (rank - w_world - 1)
-                    pass
-            if end_width_up > end_width_seg:
-                # Impact the top-right corner
-                if (end_width_seg < self.width_worker
-                        and end_height_seg < self.height_worker):
-                    accumulator += not active_segs[i_seg_bellow + 1]
-                    active_segs[i_seg_bellow + 1] = True
-                elif (end_width_seg >= self.height_worker
-                        and self.h_rank < self.h_world
-                        and self.w_rank < self.w_world):
-                    # Send message to above-right neighbor (rank - w_world + 1)
-                    pass
+    def send_message(self, msg, tag, i_worker, wait=False):
+        """Send a message to a specified worker."""
+        assert self.rank != i_worker
+        if self._backend == "mpi":
+            return self._send_message_mpi(msg, tag, i_worker, wait=wait)
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
 
-        return beta, dz_opt, accumulator, active_segs
+    def send_result(self, iterations, runtime):
+        if self._backend == "mpi":
+            self._send_result_mpi(iterations, runtime)
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
+
+    def shutdown(self):
+        if self._backend == "mpi":
+            self._shutdown_mpi()
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
+
+    ###########################################################################
+    #     mpi4py implementation
+    ###########################################################################
+
+    def _synchronize_workers_mpi(self):
+        comm = MPI.Comm.Get_parent()
+        comm.Barrier()
+
+    def check_no_transitting_message(self):
+        """Check no message is in waiting to complete to or from this worker"""
+        if MPI.COMM_WORLD.Iprobe():
+            return False
+        while self.messages:
+            if not self.messages[0].Test() or MPI.COMM_WORLD.Iprobe():
+                return False
+            self.messages.pop(0)
+        return True
+
+    def _get_params_mpi(self):
+        comm = MPI.Comm.Get_parent()
+
+        rank = comm.Get_rank()
+        n_jobs = comm.Get_size()
+        params = comm.bcast(None, root=0)
+        D = recv_broadcasted_array(comm)
+        return rank, n_jobs, params, D
+
+    def _get_signal_mpi(self, sig_shape, debug):
+        comm = MPI.Comm.Get_parent()
+        rank = comm.Get_rank()
+
+        sig_worker = np.empty(sig_shape, dtype='d')
+        comm.Recv([sig_worker.ravel(), MPI.DOUBLE], source=0,
+                  tag=constants.TAG_ROOT + rank)
+
+        if debug:
+
+            X_alpha = 0.25 * np.ones(sig_shape)
+            comm.Send([X_alpha.ravel(), MPI.DOUBLE], dest=0,
+                      tag=constants.TAG_ROOT + rank)
+
+        return sig_worker
+
+    def _send_message_mpi(self, msg, tag, i_worker, wait=False):
+        if wait:
+            return MPI.COMM_WORLD.Ssend([msg, MPI.DOUBLE], i_worker, tag=tag)
+        else:
+            return MPI.COMM_WORLD.Issend([msg, MPI.DOUBLE], i_worker, tag=tag)
+
+    def _send_result_mpi(self, iterations, runtime):
+        comm = MPI.Comm.Get_parent()
+        _, _, *atom_shape = self.D.shape
+
+        if flags.GET_OVERLAP_Z_HAT:
+            res_slice = (Ellipsis,)
+        else:
+            res_slice = (Ellipsis,) + tuple([
+                slice(start, end)
+                for start, end in self.local_segments.inner_bounds
+            ])
+
+        z_worker = self.z_hat[res_slice].ravel()
+        comm.Send([z_worker, MPI.DOUBLE], dest=0,
+                  tag=constants.TAG_ROOT + self.rank)
+
+        if self.return_ztz:
+            ztz, ztX = self.compute_sufficient_statistics()
+            comm.Reduce([ztz, MPI.DOUBLE], None, MPI.SUM, root=0)
+            comm.Reduce([ztX, MPI.DOUBLE], None, MPI.SUM, root=0)
+
+        comm.gather([iterations, runtime], root=0)
+        comm.Barrier()
+
+    def compute_sufficient_statistics(self):
+        _, _, *atom_shape = self.D.shape
+        z_slice = (Ellipsis,) + tuple([
+            slice(start, end)
+            for start, end in self.local_segments.inner_bounds
+        ])
+        X_slice = (Ellipsis,) + tuple([
+            slice(start, end + size_atom_ax - 1)
+            for (start, end), size_atom_ax in zip(
+                self.local_segments.inner_bounds, atom_shape)
+        ])
+
+        ztX = compute_ztX(self.z_hat[z_slice], self.X_worker[X_slice])
+
+        padding_shape = self.workers_segments.get_padding_to_overlap(self.rank)
+        ztz = compute_ztz(self.z_hat, atom_shape,
+                          padding_shape=padding_shape)
+        return np.array(ztz, dtype='d'), np.array(ztX, dtype='d')
+
+    def _shutdown_mpi(self):
+        comm = MPI.Comm.Get_parent()
+        self.debug("clean shutdown")
+        comm.Barrier()
+        comm.Disconnect()
 
 
 if __name__ == "__main__":
-    worker = DICODWorker()
-    worker._receive_task()
-    print("youhou")
-    worker._lgcd()
-    worker.shutdown()
+    dicod = DICODWorker(backend='mpi')
+    dicod.run()
+    dicod.shutdown()
