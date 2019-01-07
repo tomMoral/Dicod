@@ -422,7 +422,7 @@ class DICODWorker:
             else:
                 kwargs = {'end': '', 'flush': True}
             msg_fmt = msg_fmt.ljust(80)
-            print(msg_fmt.format(level_name, identity, *fmt_args), **kwargs)
+            print(msg_fmt.format(identity, level_name, *fmt_args), **kwargs)
 
     ###########################################################################
     #     Communication primitives

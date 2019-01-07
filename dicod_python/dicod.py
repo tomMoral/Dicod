@@ -136,19 +136,25 @@ def reconstruct_pobj(X, D, reg, _log, n_jobs, valid_shape=None, z0=None):
 
     # Re-order the updates
     _log.sort()
+    max_ii = [0] * n_jobs
+    for _, ii, rank, *_ in _log:
+        max_ii[rank] = max(max_ii[rank], ii)
+    max_ii = np.sum(max_ii)
 
     up_ii = 0
     p_obj = []
     next_cost = 1
     last_ii = [0] * n_jobs
     for i, (t_update, ii, rank, k0, pt0, dz) in enumerate(_log):
-        print(i)
+        print("\rReconstructing cost {:7.2%}"
+              .format(np.log(up_ii)/np.log(max_ii)), end='', flush=True)
         z_hat[k0][tuple(pt0)] += dz
         up_ii += ii - last_ii[rank]
         last_ii[rank] = ii
         if up_ii >= next_cost:
             p_obj.append((up_ii, t_update, cost(X, z_hat, D, reg)))
             next_cost = next_cost * 2
+    print('\rReconstruction cost: done'.ljust(40))
 
     p_obj.append((up_ii, t_update, cost(X, z_hat, D, reg)))
     return np.array(p_obj)
