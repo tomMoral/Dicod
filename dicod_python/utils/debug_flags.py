@@ -1,7 +1,7 @@
 
 # Set the debug flags to True when testing dicod.
 import os
-TESTING_DICOD = os.environ.get("TESTING_DICOD", False)
+TESTING_DICOD = os.environ.get("TESTING_DICOD", "0") == "1"
 
 
 # Start interactive child processes when set to True

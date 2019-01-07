@@ -5,7 +5,7 @@ import numpy as np
 
 from dicod_python.dicod import dicod
 from dicod_python.utils import check_random_state
-from dicod_python.coordinate_descent_2d import _init_beta
+from dicod_python.coordinate_descent import _init_beta
 from dicod_python.utils.csc import compute_ztz, compute_ztX
 
 VERBOSE = 10

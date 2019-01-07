@@ -323,8 +323,6 @@ def _check_convergence(segments, tol, iteration, dz_opt, n_coordinates,
     # check stopping criterion
     if strategy == 'greedy':
         if not segments.exist_active_segment():
-            if flags.CHECK_ACTIVE_SEGMENTS:
-                assert np.all(abs(dz_opt) <= tol)
             return True
     else:
         # only check at the last coordinate

@@ -105,18 +105,19 @@ class Segmentation:
 
         seg_bounds = []
         ax_offset = self.effective_n_seg
-        for n_seg_ax, size_seg_ax, size_full_ax, (start, end), out in zip(
+        for (n_seg_ax, size_seg_ax, size_full_ax,
+             (start_in_ax, end_in_ax), overlap_ax) in zip(
                 self.n_seg_per_axis, self.seg_shape, self.full_shape,
                 self.inner_bounds, self.overlap):
             ax_offset //= n_seg_ax
             ax_i_seg = i_seg // ax_offset
-            ax_bound_start = start + ax_i_seg * size_seg_ax
+            ax_bound_start = start_in_ax + ax_i_seg * size_seg_ax
             ax_bound_end = ax_bound_start + size_seg_ax
             if (ax_i_seg + 1) % n_seg_ax == 0:
-                ax_bound_end = end
+                ax_bound_end = end_in_ax
             if not inner:
-                ax_bound_end = min(ax_bound_end + out, size_full_ax)
-                ax_bound_start = max(ax_bound_start - out, 0)
+                ax_bound_end = min(ax_bound_end + overlap_ax, size_full_ax)
+                ax_bound_start = max(ax_bound_start - overlap_ax, 0)
             seg_bounds.append([ax_bound_start, ax_bound_end])
             i_seg %= ax_offset
         return seg_bounds
@@ -257,12 +258,12 @@ class Segmentation:
         """Return True if at least one segment is active."""
         return self._n_active_segments > 0
 
-    def test_active_segment(self, dz, tol):
+    def test_active_segments(self, dz, tol):
         """Test the state of active segments is coherent with dz and tol
         """
         for i in range(self.effective_n_seg):
             if not self.is_active_segment(i):
-                seg_slice = self.get_seg_slice(i)
+                seg_slice = self.get_seg_slice(i, inner=True)
                 assert np.all(abs(dz[seg_slice]) <= tol)
 
     def get_global_coordinate(self, i_seg, pt):

@@ -175,13 +175,6 @@ class DICODWorker:
                 # update the selected coordinate and beta
                 self.coordinate_update(k0, pt0, dz)
 
-                # Re-activate the segments where beta have been updated to
-                # ensure convergence.
-                touched_segments = self.local_segments.get_touched_segments(
-                    pt=pt0, radius=self.overlap)
-                n_changed_status = self.local_segments.set_active_segments(
-                    touched_segments)
-
                 # Notify neighboring workers of the update if needed.
                 pt_global = self.workers_segments.get_global_coordinate(
                     self.rank, pt0)
@@ -190,12 +183,6 @@ class DICODWorker:
                 )
                 msg = np.array([k0, *pt_global, dz], 'd')
                 self.notify_neighbors(msg, workers)
-
-                # If requested, check that all inactive segments have no
-                # coefficients to update over the tolerance.
-                if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
-                    self.local_segments.test_active_segments(
-                        self.dz_opt, self.tol)
 
             # Inactivate the current segment if the magnitude of the update is
             # too small. This only work when using LGCD.
@@ -219,6 +206,13 @@ class DICODWorker:
             if _check_convergence(self.local_segments, self.tol, ii,
                                   self.dz_opt, n_coordinates, self.strategy,
                                   accumulator=accumulator):
+
+                if flags.CHECK_ACTIVE_SEGMENTS:
+                    inner_slice = (Ellipsis,) + tuple([
+                        slice(start, end)
+                        for start, end in self.local_segments.inner_bounds
+                    ])
+                    assert np.all(abs(self.dz_opt[inner_slice]) <= self.tol)
                 if self.check_no_transitting_message():
                     status = self.wait_status_changed()
                     if status == constants.STATUS_STOP:
@@ -257,6 +251,19 @@ class DICODWorker:
             k0, pt0, dz, self.beta, self.dz_opt, self.z_hat, self.D,
             self.reg, self.constants, self.z_positive,
             coordinate_exist=coordinate_exist)
+
+        # Re-activate the segments where beta have been updated to ensure
+        # convergence.
+        touched_segments = self.local_segments.get_touched_segments(
+            pt=pt0, radius=self.overlap)
+        n_changed_status = self.local_segments.set_active_segments(
+            touched_segments)
+
+        # If requested, check that all inactive segments have no coefficients
+        # to update over the tolerance.
+        if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
+            self.local_segments.test_active_segments(
+                self.dz_opt, self.tol)
 
     def process_messages(self, worker_status=constants.STATUS_RUNNING):
         mpi_status = MPI.Status()
@@ -298,15 +305,8 @@ class DICODWorker:
         coordinate_exist = self.workers_segments.is_contained_coordinate(
             self.rank, pt0, inner=False)
         self.coordinate_update(k0, pt0, dz, coordinate_exist=coordinate_exist)
-        touched_segment = self.local_segments.get_touched_segments(
-            pt=pt0, radius=self.overlap)
-        n_changed_status = self.local_segments.set_active_segments(
-            touched_segment)
 
-        if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
-            self.local_segments.test_active_segments(self.dz_opt, self.tol)
-
-        if flags.CHECK_BETA:
+        if flags.CHECK_BETA and np.random.rand() > 0.99:
             inner_slice = (Ellipsis,) + tuple([
                 slice(start, end)
                 for start, end in self.local_segments.inner_bounds
