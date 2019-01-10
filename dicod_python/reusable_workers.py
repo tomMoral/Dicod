@@ -4,6 +4,7 @@ Author : tommoral <thomas.moreau@inria.fr>
 """
 import os
 import sys
+import warnings
 import numpy as np
 from mpi4py import MPI
 import multiprocessing as mp
@@ -30,7 +31,10 @@ def get_reusable_workers(n_jobs=4, hostfile=None):
         _worker_comm = _spawn_workers(n_jobs, hostfile)
         mp.util.Finalize(None, shutdown_reusable_workers, exitpriority=20)
     else:
-        assert _n_workers == n_jobs, "You should not require different size"
+        if _n_workers != n_jobs:
+            warnings.warn("You should not require different size")
+            shutdown_reusable_workers()
+            return get_reusable_workers(n_jobs=n_jobs, hostfile=hostfile)
 
     return _worker_comm
 
@@ -44,10 +48,13 @@ def send_command_to_reusable_workers(tag):
 
 
 def shutdown_reusable_workers():
-    global _worker_comm
-    send_command_to_reusable_workers(constants.TAG_WORKER_STOP)
-    _worker_comm.Barrier()
-    print("Clean shutdown")
+    global _worker_comm, _n_workers
+    if _worker_comm is not None:
+        send_command_to_reusable_workers(constants.TAG_WORKER_STOP)
+        _worker_comm.Barrier()
+        print("Clean shutdown")
+        _n_workers = None
+        _worker_comm = None
 
 
 def _spawn_workers(n_jobs, hostfile):

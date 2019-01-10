@@ -11,12 +11,13 @@ from dicod_python.utils.csc import compute_ztz, compute_ztX
 from dicod_python.utils.shape_helpers import get_full_shape
 
 VERBOSE = 10
+N_WORKERS = 4
 TEST_HOSTFILE = os.path.join(os.path.dirname(__file__), 'hostfile')
 
 
-@pytest.mark.parametrize('n_jobs', [2, 4, 6])
 @pytest.mark.parametrize('signal_shape, atom_shape', [((800,), (50,)),
                                                       ((100, 100), (10, 8))])
+@pytest.mark.parametrize('n_jobs', [2, 6, N_WORKERS])
 def test_stopping_criterion(n_jobs, signal_shape, atom_shape):
     tol = 1
     reg = 1
@@ -56,8 +57,9 @@ def test_ztz(valid_shape, atom_shape):
     D = rng.randn(n_atoms, n_channels, *atom_shape)
     D /= np.sqrt(np.sum(D * D, axis=(1, 2), keepdims=True))
 
-    z_hat, ztz, ztX = dicod(X, D, reg, tol=tol, n_jobs=4, return_ztz=True,
-                            hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+    z_hat, ztz, ztX, *_ = dicod(X, D, reg, tol=tol, n_jobs=N_WORKERS,
+                                return_ztz=True, hostfile=TEST_HOSTFILE,
+                                verbose=VERBOSE)
 
     ztz_full = compute_ztz(z_hat, atom_shape)
     assert np.allclose(ztz_full, ztz)
@@ -83,8 +85,8 @@ def test_warm_start(valid_shape, atom_shape):
 
     X = reconstruct(z, D)
 
-    z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=4, max_iter=10000,
-                      hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+    z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
+                      max_iter=10000, hostfile=TEST_HOSTFILE, verbose=VERBOSE)
 
     assert np.allclose(z_hat, z)
 
@@ -109,13 +111,13 @@ def test_freeze_support(valid_shape, atom_shape):
 
     X = rng.randn(n_channels, *sig_shape)
 
-    z_hat, *_ = dicod(X, D, reg, z0=0 * z, tol=tol, n_jobs=4, max_iter=1000,
-                      freeze_support=True, hostfile=TEST_HOSTFILE,
-                      verbose=VERBOSE)
+    z_hat, *_ = dicod(X, D, reg, z0=0 * z, tol=tol, n_jobs=N_WORKERS,
+                      max_iter=1000, freeze_support=True,
+                      hostfile=TEST_HOSTFILE, verbose=VERBOSE)
     assert np.all(z_hat == 0)
 
-    z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=4, max_iter=1000,
-                      freeze_support=True, hostfile=TEST_HOSTFILE,
-                      verbose=VERBOSE)
+    z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
+                      max_iter=1000, freeze_support=True,
+                      hostfile=TEST_HOSTFILE, verbose=VERBOSE)
 
     assert np.all(z_hat[z == 0] == 0)

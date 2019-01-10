@@ -255,6 +255,8 @@ class DICODWorker:
             assert self.z0 is not None
             self.freezed_support = self.z0 == 0
             self.dz_opt[self.freezed_support] = 0
+        else:
+            self.freezed_support = None
 
     def coordinate_update(self, k0, pt0, dz, coordinate_exist=True):
         self.beta, self.dz_opt = coordinate_update(

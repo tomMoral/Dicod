@@ -214,9 +214,9 @@ def test_touched_overlap_area():
             segments.check_area_contained(i_seg, pt0, overlap)
             z = np.zeros(sig_shape)
             pt_global = segments.get_global_coordinate(i_seg, pt0)
-            update_slice = [
+            update_slice = tuple([
                 slice(max(v - r, 0), v + r + 1)
-                for v, r in zip(pt_global, overlap)]
+                for v, r in zip(pt_global, overlap)])
 
             z[update_slice] += 1
             z[seg_inner_slice] = 0
