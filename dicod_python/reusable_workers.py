@@ -52,7 +52,6 @@ def shutdown_reusable_workers():
     if _worker_comm is not None:
         send_command_to_reusable_workers(constants.TAG_WORKER_STOP)
         _worker_comm.Barrier()
-        print("Clean shutdown")
         _n_workers = None
         _worker_comm = None
 

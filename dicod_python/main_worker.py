@@ -29,8 +29,6 @@ def _wait_message():
 
 def _shutdown_mpi():
     comm = MPI.Comm.Get_parent()
-    rank = comm.Get_rank()
-    print("clean shutdown for Worker-{}".format(rank))
     comm.Barrier()
     comm.Disconnect()
 
