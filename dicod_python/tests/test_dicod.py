@@ -68,27 +68,33 @@ def test_ztz(valid_shape, atom_shape):
     assert np.allclose(ztX_full, ztX)
 
 
-@pytest.mark.parametrize('valid_shape, atom_shape', [((500,), (30,)),
-                                                     ((72, 60), (10, 8))])
-def test_warm_start(valid_shape, atom_shape):
-    tol = .5
-    reg = 0
+@pytest.mark.parametrize('valid_shape, atom_shape, reg',
+                         [((500,), (30,), 1), ((72, 60), (10, 8), 100)])
+def test_warm_start(valid_shape, atom_shape, reg):
+    tol = 1
     n_atoms = 7
     n_channels = 5
-    random_state = None
+    random_state = 36
 
     rng = check_random_state(random_state)
 
     D = rng.randn(n_atoms, n_channels, *atom_shape)
     D /= np.sqrt(np.sum(D * D, axis=(1, 2), keepdims=True))
     z = rng.randn(n_atoms, *valid_shape)
+    z *= (rng.rand(n_atoms, *valid_shape) > .7)
 
     X = reconstruct(z, D)
 
-    z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
+    z_hat, *_ = dicod(X, D, reg=0, z0=z, tol=tol, n_jobs=N_WORKERS,
                       max_iter=10000, hostfile=TEST_HOSTFILE, verbose=VERBOSE)
-
     assert np.allclose(z_hat, z)
+
+    X = rng.randn(*X.shape)
+
+    z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
+                      max_iter=100000, hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+    beta, dz_opt = _init_beta(X, D, reg, z_i=z_hat)
+    assert np.all(dz_opt <= tol)
 
 
 @pytest.mark.parametrize('valid_shape, atom_shape', [((500,), (30,)),

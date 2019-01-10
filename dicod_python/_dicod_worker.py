@@ -100,11 +100,7 @@ class DICODWorker:
             n_seg=n_seg, seg_shape=local_seg_shape, inner_bounds=inner_bounds,
             full_shape=worker_shape)
 
-        self.synchronize_workers()
-
     def run(self):
-
-        self.init_cd_variables()
 
         # Initialization of the algorithm variables
         random_state = check_random_state(self.random_state)
@@ -124,6 +120,9 @@ class DICODWorker:
         else:
             self.z_hat = self.z0
         n_coordinates = n_atoms * np.prod(seg_in_shape)
+
+        self.init_cd_variables()
+        self.synchronize_workers()
 
         diverging = False
         if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
@@ -251,6 +250,10 @@ class DICODWorker:
             self.X_worker, self.D, self.reg, z_i=self.z0, constants=constants,
             z_positive=self.z_positive)
 
+        if self.z0 is not None:
+            self.freezed_support = None
+            self.correct_beta_z0()
+
         if self.freeze_support:
             assert self.z0 is not None
             self.freezed_support = self.z0 == 0
@@ -309,7 +312,6 @@ class DICODWorker:
 
     def message_update_beta(self, msg):
         k0, *pt0, dz = msg
-        # print("Recv", self.rank, pt0, dz)
 
         k0 = int(k0)
         pt0 = tuple([int(v) for v in pt0])
@@ -345,6 +347,8 @@ class DICODWorker:
             elif tag == constants.TAG_RUNNING_WORKER:
                 self.n_paused_worker -= 1
                 assert self.n_paused_worker >= 0
+            elif tag == constants.TAG_INIT_DONE:
+                pass
             else:
                 raise ValueError("Got tag {}".format(tag))
             return
@@ -394,6 +398,67 @@ class DICODWorker:
         ztz = compute_ztz(self.z_hat, atom_shape,
                           padding_shape=padding_shape)
         return np.array(ztz, dtype='d'), np.array(ztX, dtype='d')
+
+    def correct_beta_z0(self):
+        # Send coordinate updates to neighbors for all nonzero coordinates in
+        # z0
+        msg_send, msg_recv = [0] * self.n_jobs, [0] * self.n_jobs
+        for k0, *pt0 in zip(*self.z0.nonzero()):
+            # Notify neighboring workers of the update if needed.
+            pt_global = self.workers_segments.get_global_coordinate(
+                self.rank, pt0)
+            workers = self.workers_segments.get_touched_segments(
+                pt=pt_global, radius=np.array(self.overlap)
+            )
+            msg = np.array([k0, *pt_global, self.z0[(k0, *pt0)]], 'd')
+            self.notify_neighbors(msg, workers)
+            for i in workers:
+                msg_send[i] += 1
+
+        n_init_done = 0
+        no_msg, init_done = False, False
+        mpi_status = MPI.Status()
+        while not init_done:
+            if n_init_done == self.n_jobs:
+                for i_worker in range(1, self.n_jobs):
+                    self.notify_worker_status(constants.TAG_INIT_DONE,
+                                              i_worker=i_worker)
+                init_done = True
+            if not no_msg:
+                if self.check_no_transitting_message(check_incoming=False):
+                    self.notify_worker_status(constants.TAG_INIT_DONE)
+                    if self.rank == 0:
+                        n_init_done += 1
+                    assert len(self.messages) == 0
+                    no_msg = True
+
+            if MPI.COMM_WORLD.Iprobe(status=mpi_status):
+                tag = mpi_status.tag
+                src = mpi_status.source
+                if tag == constants.TAG_INIT_DONE:
+                    if self.rank == 0:
+                        n_init_done += 1
+                    else:
+                        init_done = True
+
+                msg = np.empty(self.size_msg, 'd')
+                MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=src, tag=tag)
+
+                if tag == constants.TAG_UPDATE_BETA:
+                    msg_recv[src] += 1
+                    k0, *pt_global, dz = msg
+                    k0 = int(k0)
+                    pt_global = tuple([int(v) for v in pt_global])
+                    pt0 = self.workers_segments.get_local_coordinate(self.rank,
+                                                                     pt_global)
+                    coordinate_exist = self.workers_segments.is_contained_coordinate(
+                        self.rank, pt0, inner=False)
+                    if not coordinate_exist:
+                        self.coordinate_update(k0, pt0, dz,
+                                               coordinate_exist=False)
+
+            else:
+                time.sleep(.001)
 
     ###########################################################################
     #     Display utilities
@@ -489,14 +554,16 @@ class DICODWorker:
         comm = MPI.Comm.Get_parent()
         comm.Barrier()
 
-    def check_no_transitting_message(self):
+    def check_no_transitting_message(self, check_incoming=True):
         """Check no message is in waiting to complete to or from this worker"""
-        if MPI.COMM_WORLD.Iprobe():
+        if check_incoming and MPI.COMM_WORLD.Iprobe():
             return False
         while self.messages:
-            if not self.messages[0].Test() or MPI.COMM_WORLD.Iprobe():
+            if not self.messages[0].Test() or (
+                    check_incoming and MPI.COMM_WORLD.Iprobe()):
                 return False
             self.messages.pop(0)
+        assert len(self.messages) == 0, len(self.messages)
         return True
 
     def _get_params_mpi(self):
