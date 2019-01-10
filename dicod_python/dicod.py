@@ -30,8 +30,8 @@ interactive_args = ["-fa", "Monospace", "-fs", "12", "-e", "ipython", "-i"]
 def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
           use_soft_lock=True, n_jobs=1, w_world='auto', hostfile=None,
           tol=1e-5, max_iter=100000, timeout=None, z_positive=False,
-          return_ztz=False, timing=False, random_state=None, verbose=0,
-          debug=False):
+          return_ztz=False, freeze_support=False, timing=False,
+          random_state=None, verbose=0, debug=False):
     """DICOD for 2D convolutional sparse coding.
 
     Parameters
@@ -72,6 +72,8 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         If set to true, the activations are constrained to be positive.
     return_ztz : boolean
         If True, returns the constants ztz and ztX, used to compute D-updates.
+    freeze_support : boolean
+        If set to True, only update the coefficient that are non-zero in z0.
     timing : boolean
         If set to True, log the cost and timing information.
     random_state : None or int or RandomState
@@ -88,14 +90,15 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         return coordinate_descent(
             X_i, D, reg, z0=z0, n_seg=n_seg, strategy=strategy, tol=tol,
             max_iter=max_iter, timeout=timeout, z_positive=z_positive,
-            return_ztz=return_ztz, timing=timing, random_state=random_state,
-            verbose=verbose)
+            freeze_support=freeze_support, return_ztz=return_ztz,
+            timing=timing, random_state=random_state, verbose=verbose)
 
     params = dict(
         strategy=strategy, tol=tol, max_iter=max_iter, timeout=timeout,
         n_seg=n_seg, z_positive=z_positive, verbose=verbose, timing=timing,
         debug=debug, random_state=random_state, reg=reg, return_ztz=return_ztz,
-        use_soft_lock=use_soft_lock, has_z0=z0 is not None
+        use_soft_lock=use_soft_lock, has_z0=z0 is not None,
+        freeze_support=freeze_support
     )
     n_channels, *sig_shape = X_i.shape
     n_atoms, n_channels, *atom_shape = D.shape
@@ -277,8 +280,8 @@ def _recv_result(comm, D_shape, valid_shape, workers_segments,
     else:
         ztz, ztX = None, None
 
+    _log = []
     if timing:
-        _log = []
         for i_seg in range(workers_segments.effective_n_seg):
             _log.extend(comm.recv(source=i_seg))
 

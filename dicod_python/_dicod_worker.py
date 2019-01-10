@@ -13,6 +13,7 @@ from dicod_python.utils import constants as constants
 from dicod_python.utils.segmentation import Segmentation
 from dicod_python.utils.mpi import recv_broadcasted_array
 from dicod_python.utils.csc import compute_ztz, compute_ztX
+from dicod_python.utils.shape_helpers import get_full_shape
 from dicod_python.utils.csc import compute_DtD, compute_norm_atoms
 
 from dicod_python.coordinate_descent import _select_coordinate
@@ -47,6 +48,7 @@ class DICODWorker:
         self.z_positive = params['z_positive']
         self.return_ztz = params['return_ztz']
         self.use_soft_lock = params['use_soft_lock']
+        self.freeze_support = params['freeze_support']
 
         self.random_state = params['random_state']
         if isinstance(self.random_state, int):
@@ -59,7 +61,7 @@ class DICODWorker:
 
         # Compute the shape of the worker segment.
         n_atoms, n_channels, *atom_shape = self.D.shape
-        self.overlap = [size_atom_ax - 1 for size_atom_ax in atom_shape]
+        self.overlap = np.array(atom_shape) - 1
         self.workers_segments = Segmentation(
             n_seg=params['workers_topology'],
             signal_shape=params['valid_shape'],
@@ -67,10 +69,7 @@ class DICODWorker:
 
         # Receive X and z from the master node.
         worker_shape = self.workers_segments.get_seg_shape(self.rank)
-        X_shape = (n_channels,) + tuple([
-            size_worker_ax + size_atom_ax - 1
-            for size_worker_ax, size_atom_ax in zip(worker_shape, atom_shape)
-        ])
+        X_shape = (n_channels,) + get_full_shape(worker_shape, atom_shape)
         if params['has_z0']:
             z0_shape = (n_atoms,) + worker_shape
             self.z0 = self.get_signal(z0_shape, params['debug'])
@@ -85,9 +84,8 @@ class DICODWorker:
         n_seg = self.n_seg
         local_seg_shape = None
         if self.n_seg == 'auto':
-            n_seg, local_seg_shape = None, []
-            for size_atom_ax in atom_shape:
-                local_seg_shape.append(2 * size_atom_ax - 1)
+            n_seg = None
+            local_seg_shape = 2 * np.array(atom_shape) - 1
 
         # Get local inner bounds. First, compute the seg_bound without overlap
         # in local coordinates and then convert the bounds in the local
@@ -253,10 +251,16 @@ class DICODWorker:
             self.X_worker, self.D, self.reg, z_i=self.z0, constants=constants,
             z_positive=self.z_positive)
 
+        if self.freeze_support:
+            assert self.z0 is not None
+            self.freezed_support = self.z0 == 0
+            self.dz_opt[self.freezed_support] = 0
+
     def coordinate_update(self, k0, pt0, dz, coordinate_exist=True):
         self.beta, self.dz_opt = coordinate_update(
             k0, pt0, dz, self.beta, self.dz_opt, self.z_hat, self.D,
             self.reg, self.constants, self.z_positive,
+            freezed_support=self.freezed_support,
             coordinate_exist=coordinate_exist)
 
         # Re-activate the segments where beta have been updated to ensure

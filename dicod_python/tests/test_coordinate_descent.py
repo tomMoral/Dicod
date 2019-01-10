@@ -17,8 +17,8 @@ def test_init_beta():
     X = rng.randn(n_channels, height, width)
     D = rng.randn(n_atoms, n_channels, height_atom, width_atom)
     D /= np.sqrt(np.sum(D * D, axis=(1, 2, 3), keepdims=True))
-    z = np.zeros((n_atoms, height_valid, width_valid))
-    # z = rng.randn(n_atoms, height_valid, width_valid)
+    # z = np.zeros((n_atoms, height_valid, width_valid))
+    z = rng.randn(n_atoms, height_valid, width_valid)
 
     lmbd = 1
     beta, dz_opt = _init_beta(X, D, lmbd, z_i=z)
@@ -45,5 +45,5 @@ def test_init_beta():
         z[k, h, w] -= 2.1 * eps
         for _ in range(5):
             z[k, h, w] += eps
-            assert c0 < cost(X, z, D, lmbd)
+            assert c0 <= cost(X, z, D, lmbd)
         z[k, h, w] = z_old

@@ -18,7 +18,8 @@ from .utils.csc import cost, soft_thresholding, reconstruct
 
 def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
                        tol=1e-5, max_iter=100000, timeout=None,
-                       z_positive=False, return_ztz=False, timing=False,
+                       z_positive=False, freeze_support=False,
+                       return_ztz=False, timing=False,
                        random_state=None, verbose=0):
     """Coordinate Descent Algorithm for 2D convolutional sparse coding.
 
@@ -45,6 +46,8 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         Maximal number of iteration run by this algorithm.
     z_positive : boolean
         If set to true, the activations are constrained to be positive.
+    freeze_support : boolean
+        If set to True, only update the coefficient that are non-zero in z0.
     timing : boolean
         If set to True, log the cost and timing information.
     random_state : None or int or RandomState
@@ -90,6 +93,10 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     t_start = t_start_update = time.time()
     beta, dz_opt = _init_beta(X_i, D, reg, z_i=z0, constants=constants,
                               z_positive=z_positive)
+
+    if freeze_support:
+        freezed_support = z0 == 0
+        dz_opt[freezed_support] = 0
     for ii in range(max_iter):
         if ii % 1000 == 0 and verbose > 0:
             print("\rCD {:7.2%}".format(ii / max_iter), end='', flush=True)
@@ -110,7 +117,8 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
 
             # update beta
             beta, dz_opt = coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat,
-                                             D, reg, constants, z_positive)
+                                             D, reg, constants, z_positive,
+                                             freezed_support=freezed_support)
             touched_segs = segments.get_touched_segments(
                 pt=pt0, radius=atom_shape)
             n_changed_status = segments.set_active_segments(touched_segs)
@@ -239,7 +247,7 @@ def _select_coordinate(dz_opt, segments, i_seg, strategy='greedy',
 
 
 def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
-                      z_positive, coordinate_exist=True):
+                      z_positive, freezed_support=None, coordinate_exist=True):
     """Update the optimal value for the coordinate updates.
 
     Parameters
@@ -260,6 +268,8 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
         Pre-computed constants for the computations
     z_positive : boolean
         If set to true, the activations are constrained to be positive.
+    freezed_support : ndarray, shape (n_atoms, *valid_shape)
+        mask with True in each coordinate fixed to 0.
     coordinate_exist : boolean
         If set to true, the coordinate is located in the updated part of beta.
         This option is only useful for DICOD.
@@ -301,6 +311,9 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
     tmp = soft_thresholding(-beta[update_slice], reg,
                             positive=z_positive) / norm_atoms
     dz_opt[update_slice] = tmp - z_hat[update_slice]
+
+    if freezed_support is not None:
+        dz_opt[update_slice][freezed_support[update_slice]] = 0
 
     # If the coordinate exists, put it back to 0 update
     if coordinate_exist:
