@@ -1,4 +1,7 @@
-# Authors: Thomas Moreau <thomas.moreau@inria.fr>
+"""Worker for the distributed algorithm DICOD
+
+Author : tommoral <thomas.moreau@inria.fr>
+"""
 
 import time
 import numpy as np
@@ -289,8 +292,7 @@ class DICODWorker:
                 assert self.n_paused_worker >= 0
 
             msg = np.empty(self.size_msg, 'd')
-            MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=src,
-                                tag=tag)
+            MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=src, tag=tag)
 
             if tag == constants.TAG_UPDATE_BETA:
                 self.message_update_beta(msg)
@@ -324,7 +326,6 @@ class DICODWorker:
         assert self.rank in neighbors
         for i_neighbor in neighbors:
             if i_neighbor != self.rank:
-                # print("Send", i_neighbor, msg[1:])
                 req = self.send_message(msg, constants.TAG_UPDATE_BETA,
                                         i_neighbor, wait=False)
                 self.messages.append(req)

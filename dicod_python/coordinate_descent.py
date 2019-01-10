@@ -1,6 +1,8 @@
-#
-# Authors : Tommoral <thomas.moreau@inria.fr>
-#
+"""Convolutional Sparse Coding with LGCD
+
+Author : tommoral <thomas.moreau@inria.fr>
+"""
+
 import time
 import numpy as np
 from scipy.signal import fftconvolve
@@ -9,13 +11,14 @@ from scipy.signal import fftconvolve
 from .utils import check_random_state
 from .utils import debug_flags as flags
 from .utils.segmentation import Segmentation
-from .utils.csc import soft_thresholding, reconstruct
+from .utils.csc import compute_ztz, compute_ztX
 from .utils.csc import compute_DtD, compute_norm_atoms
+from .utils.csc import cost, soft_thresholding, reconstruct
 
 
-def coordinate_descent(X_i, D, lmbd, n_seg='auto', tol=1e-5,
-                       strategy='greedy', max_iter=100000,
-                       z_positive=False, timing=False,
+def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
+                       tol=1e-5, max_iter=100000, timeout=None,
+                       z_positive=False, return_ztz=False, timing=False,
                        random_state=None, verbose=0):
     """Coordinate Descent Algorithm for 2D convolutional sparse coding.
 
@@ -27,7 +30,7 @@ def coordinate_descent(X_i, D, lmbd, n_seg='auto', tol=1e-5,
         Warm start value for z_hat
     D : ndarray, shape (n_atoms, n_channels, *atom_shape)
         Current dictionary for the sparse coding
-    lmbd : float
+    reg : float
         Regularization parameter
     n_seg : int or { 'auto' }
         Number of segments to use for each dimension. If set to 'auto' use
@@ -75,12 +78,17 @@ def coordinate_descent(X_i, D, lmbd, n_seg='auto', tol=1e-5,
 
     # Initialization of the algorithm variables
     i_seg = -1
+    p_obj, next_cost = [], 1
     accumulator = 0
-    z_hat = np.zeros((n_atoms,) + valid_shape)
+    if z0 is None:
+        z_hat = np.zeros((n_atoms,) + valid_shape)
+    else:
+        z_hat = np.copy(z0)
     n_coordinates = z_hat.size
 
-    t_start = time.time()
-    beta, dz_opt = _init_beta(X_i, D, lmbd, z_i=None, constants=constants,
+    t_update = 0
+    t_start = t_start_update = time.time()
+    beta, dz_opt = _init_beta(X_i, D, reg, z_i=z0, constants=constants,
                               z_positive=z_positive)
     for ii in range(max_iter):
         if ii % 1000 == 0 and verbose > 0:
@@ -102,7 +110,7 @@ def coordinate_descent(X_i, D, lmbd, n_seg='auto', tol=1e-5,
 
             # update beta
             beta, dz_opt = coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat,
-                                             D, lmbd, constants, z_positive)
+                                             D, reg, constants, z_positive)
             touched_segs = segments.get_touched_segments(
                 pt=pt0, radius=atom_shape)
             n_changed_status = segments.set_active_segments(touched_segs)
@@ -110,12 +118,14 @@ def coordinate_descent(X_i, D, lmbd, n_seg='auto', tol=1e-5,
             if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
                 segments.test_active_segment(dz_opt, tol)
 
+            if timing:
+                t_update += time.time() - t_start_update
+                if ii >= next_cost:
+                    p_obj.append((ii, t_update, cost(X_i, z_hat, D, reg)))
+                    next_cost = next_cost * 2
+                t_start_update = time.time()
         elif strategy == "greedy":
             segments.set_inactive_segments(i_seg)
-
-        if timing:
-            # TODO: logging stuff
-            pass
 
         # check stopping criterion
         if _check_convergence(segments, tol, ii, dz_opt, n_coordinates,
@@ -129,10 +139,16 @@ def coordinate_descent(X_i, D, lmbd, n_seg='auto', tol=1e-5,
 
     if verbose > 0:
         print("\r[LGCD:INFO] done in {:.3}s".format(time.time() - t_start))
-    return z_hat
+
+    ztz, ztX = None, None
+    if return_ztz:
+        ztz = compute_ztz(z_hat, atom_shape)
+        ztX = compute_ztX(z_hat, X_i)
+
+    return z_hat, ztz, ztX, p_obj
 
 
-def _init_beta(X_i, D, lmbd, z_i=None, constants={}, z_positive=False):
+def _init_beta(X_i, D, reg, z_i=None, constants={}, z_positive=False):
     """Init beta with the gradient in the current point 0
 
     Parameters
@@ -143,7 +159,7 @@ def _init_beta(X_i, D, lmbd, z_i=None, constants={}, z_positive=False):
         Warm start value for z_hat
     D : ndarray, shape (n_atoms, n_channels, *atom_shape)
         Current dictionary for the sparse coding
-    lmbd : float
+    reg : float
         Regularization parameter
     constants : dictionary, optional
         Pre-computed constants for the computations
@@ -172,7 +188,7 @@ def _init_beta(X_i, D, lmbd, z_i=None, constants={}, z_positive=False):
             pt = tuple(pt)
             beta[k][pt] -= z_i[k][pt] * norm_atoms[k]
 
-    dz_opt = soft_thresholding(-beta, lmbd, positive=z_positive) / norm_atoms
+    dz_opt = soft_thresholding(-beta, reg, positive=z_positive) / norm_atoms
 
     if z_i is not None:
         dz_opt -= z_i
@@ -222,7 +238,7 @@ def _select_coordinate(dz_opt, segments, i_seg, strategy='greedy',
     return k0, pt0, dz
 
 
-def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, lmbd, constants,
+def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
                       z_positive, coordinate_exist=True):
     """Update the optimal value for the coordinate updates.
 
@@ -238,7 +254,7 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, lmbd, constants,
         Value of the coordinate.
     D : ndarray, shape (n_atoms, n_channels, *atom_shape)
         Current dictionary for the sparse coding
-    lmbd : float
+    reg : float
         Regularization parameter
     constants : dictionary, optional
         Pre-computed constants for the computations
@@ -282,7 +298,7 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, lmbd, constants,
     beta[update_slice] += DtD[DtD_slice] * dz
 
     # update dz_opt
-    tmp = soft_thresholding(-beta[update_slice], lmbd,
+    tmp = soft_thresholding(-beta[update_slice], reg,
                             positive=z_positive) / norm_atoms
     dz_opt[update_slice] = tmp - z_hat[update_slice]
 

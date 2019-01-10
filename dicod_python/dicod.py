@@ -1,6 +1,8 @@
-#!/usr/bin/env python
-import os
-import sys
+"""Convolutional Sparse Coding with DICOD
+
+Author : tommoral <thomas.moreau@inria.fr>
+"""
+
 import logging
 import numpy as np
 from time import time
@@ -11,6 +13,10 @@ from dicod_python.utils import constants
 from dicod_python.utils.mpi import broadcast_array
 from dicod_python.utils import debug_flags as flags
 from dicod_python.utils.segmentation import Segmentation
+from dicod_python.coordinate_descent import coordinate_descent
+
+from dicod_python.reusable_workers import get_reusable_workers
+from dicod_python.reusable_workers import send_command_to_reusable_workers
 
 
 log = logging.getLogger('dicod')
@@ -78,6 +84,13 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     z_hat : ndarray, shape (n_atoms, *valid_shape)
         Activation associated to X_i for the given dictionary D
     """
+    if n_jobs == 1:
+        return coordinate_descent(
+            X_i, D, reg, z0=z0, n_seg=n_seg, strategy=strategy, tol=tol,
+            max_iter=max_iter, timeout=timeout, z_positive=z_positive,
+            return_ztz=return_ztz, timing=timing, random_state=random_state,
+            verbose=verbose)
+
     params = dict(
         strategy=strategy, tol=tol, max_iter=max_iter, timeout=timeout,
         n_seg=n_seg, z_positive=z_positive, verbose=verbose, timing=timing,
@@ -181,20 +194,8 @@ def _find_grid_size(n_jobs, sig_shape):
 
 
 def _spawn_workers(n_jobs, hostfile):
-    info = MPI.Info.Create()
-    # info.Set("map_bynode", '1')
-    if hostfile and os.path.exists(hostfile):
-        info.Set("hostfile", hostfile)
-    script_name = os.path.join(os.path.dirname(__file__),
-                               "_dicod_worker.py")
-    if flags.INTERACTIVE_PROCESSES:
-        comm = MPI.COMM_SELF.Spawn(
-            interactive_exec, args=interactive_args + [script_name],
-            maxprocs=n_jobs, info=info)
-
-    else:
-        comm = MPI.COMM_SELF.Spawn(sys.executable, args=[script_name],
-                                   maxprocs=n_jobs, info=info)
+    comm = get_reusable_workers(n_jobs, hostfile=hostfile)
+    send_command_to_reusable_workers(constants.TAG_WORKER_RUN_DICOD)
     return comm
 
 

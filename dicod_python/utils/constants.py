@@ -4,8 +4,13 @@
 TAG_STOP = 0
 TAG_UPDATE_BETA = 1
 TAG_PAUSED_WORKER = 2
-TAG_RUNNING_WORKER = 4
+TAG_RUNNING_WORKER = 3
 TAG_ROOT = 4242
+
+
+# Worker control flow
+TAG_WORKER_STOP = 4
+TAG_WORKER_RUN_DICOD = 5
 
 
 # inter-process message size

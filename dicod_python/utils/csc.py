@@ -1,9 +1,8 @@
 """Helper functions for Convolutional Sparse Coding.
 
-author : thomas.moreau@inria.fr
+Author : tommoral <thomas.moreau@inria.fr>
 """
 
-import numba
 import numpy as np
 from scipy.signal import fftconvolve
 
