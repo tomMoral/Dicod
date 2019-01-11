@@ -1,7 +1,7 @@
 import numpy as np
 
-from dicod_python.utils.csc import cost
-from dicod_python.coordinate_descent import _init_beta
+from dicod.utils.csc import cost
+from dicod.coordinate_descent import _init_beta
 
 
 def test_init_beta():

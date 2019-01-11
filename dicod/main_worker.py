@@ -6,8 +6,8 @@ from mpi4py import MPI
 import numpy as np
 import time
 
-from dicod_python.utils import constants
-from dicod_python._dicod_worker import DICODWorker
+from dicod.utils import constants
+from dicod._dicod_worker import DICODWorker
 
 
 def _wait_message():

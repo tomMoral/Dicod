@@ -3,12 +3,12 @@ import pytest
 import numpy as np
 
 
-from dicod_python.dicod import dicod
-from dicod_python.utils.csc import reconstruct
-from dicod_python.utils import check_random_state
-from dicod_python.coordinate_descent import _init_beta
-from dicod_python.utils.csc import compute_ztz, compute_ztX
-from dicod_python.utils.shape_helpers import get_full_shape
+from dicod.dicod import dicod
+from dicod.utils.csc import reconstruct
+from dicod.utils import check_random_state
+from dicod.coordinate_descent import _init_beta
+from dicod.utils.csc import compute_ztz, compute_ztX
+from dicod.utils.shape_helpers import get_full_shape
 
 VERBOSE = 10
 N_WORKERS = 4

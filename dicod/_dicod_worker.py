@@ -7,18 +7,18 @@ import time
 import numpy as np
 from mpi4py import MPI
 
-from dicod_python.utils import check_random_state
-from dicod_python.utils import debug_flags as flags
-from dicod_python.utils import constants as constants
-from dicod_python.utils.segmentation import Segmentation
-from dicod_python.utils.mpi import recv_broadcasted_array
-from dicod_python.utils.csc import compute_ztz, compute_ztX
-from dicod_python.utils.shape_helpers import get_full_shape
-from dicod_python.utils.csc import compute_DtD, compute_norm_atoms
+from dicod.utils import check_random_state
+from dicod.utils import debug_flags as flags
+from dicod.utils import constants as constants
+from dicod.utils.segmentation import Segmentation
+from dicod.utils.mpi import recv_broadcasted_array
+from dicod.utils.csc import compute_ztz, compute_ztX
+from dicod.utils.shape_helpers import get_full_shape
+from dicod.utils.csc import compute_DtD, compute_norm_atoms
 
-from dicod_python.coordinate_descent import _select_coordinate
-from dicod_python.coordinate_descent import _check_convergence
-from dicod_python.coordinate_descent import _init_beta, coordinate_update
+from dicod.coordinate_descent import _select_coordinate
+from dicod.coordinate_descent import _check_convergence
+from dicod.coordinate_descent import _init_beta, coordinate_update
 
 
 class DICODWorker:

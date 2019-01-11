@@ -8,15 +8,15 @@ import numpy as np
 from time import time
 from mpi4py import MPI
 
-from dicod_python.utils.csc import cost
-from dicod_python.utils import constants
-from dicod_python.utils.mpi import broadcast_array
-from dicod_python.utils import debug_flags as flags
-from dicod_python.utils.segmentation import Segmentation
-from dicod_python.coordinate_descent import coordinate_descent
+from .utils.csc import cost
+from .utils import constants
+from .utils.mpi import broadcast_array
+from .utils import debug_flags as flags
+from .utils.segmentation import Segmentation
+from .coordinate_descent import coordinate_descent
 
-from dicod_python.reusable_workers import get_reusable_workers
-from dicod_python.reusable_workers import send_command_to_reusable_workers
+from .reusable_workers import get_reusable_workers
+from .reusable_workers import send_command_to_reusable_workers
 
 
 log = logging.getLogger('dicod')
