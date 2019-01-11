@@ -42,6 +42,7 @@ class DICODWorker:
         self.reg = params['reg']
         self.n_seg = params['n_seg']
         self.timing = params['timing']
+        self.timeout = params['timeout']
         self.verbose = params['verbose']
         self.strategy = params['strategy']
         self.max_iter = params['max_iter']
@@ -129,6 +130,10 @@ class DICODWorker:
         if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
             import ipdb; ipdb.set_trace()  # noqa: E702
         t_start = time.time()
+        if self.timeout is not None:
+            deadline = t_start + self.timeout
+        else:
+            deadline = None
         for ii in range(self.max_iter):
             # Display the progress of the algorithm
             self.progress(ii, max_ii=self.max_iter, unit="iterations")
@@ -223,18 +228,23 @@ class DICODWorker:
                                    "updates", n_coordinate_updates)
                         break
 
+            # Check is we reach the timeout
+            if deadline is not None and time.time() >= deadline:
+                self.stop_before_convergence("Reached timeout",
+                                             n_coordinate_updates)
+                break
         else:
-            self.info("Reach maximal iteration with {} coordinate updates. "
-                      "Max of dz_opt is {}.", n_coordinate_updates,
-                      abs(self.dz_opt).max())
-            while not self.check_no_transitting_message():
-                time.sleep(0.001)
-            self.wait_status_changed(status=constants.STATUS_FINISHED)
+            self.info("Reached max_iter", n_coordinate_updates)
 
         self.synchronize_workers()
         assert diverging or self.check_no_transitting_message()
         runtime = time.time() - t_start
         self.send_result(n_coordinate_updates, runtime)
+
+    def stop_before_convergence(self, msg, n_coordinate_updates):
+        self.info("{}. Done {} coordinate updates. Max of |dz|={}.",
+                  msg, n_coordinate_updates, abs(self.dz_opt).max())
+        self.wait_status_changed(status=constants.STATUS_FINISHED)
 
     def init_cd_variables(self):
 
@@ -379,6 +389,12 @@ class DICODWorker:
         self.send_message(msg, tag, i_worker, wait=wait)
 
     def wait_status_changed(self, status=constants.STATUS_PAUSED):
+        if status == constants.STATUS_FINISHED:
+            # Make sure to flush the messages
+            while not self.check_no_transitting_message():
+                self.process_messages(worker_status=status)
+                time.sleep(0.001)
+
         self.notify_worker_status(constants.TAG_PAUSED_WORKER)
         self.debug("paused worker")
 
@@ -473,9 +489,9 @@ class DICODWorker:
                     pt_global = tuple([int(v) for v in pt_global])
                     pt0 = self.workers_segments.get_local_coordinate(self.rank,
                                                                      pt_global)
-                    coordinate_exist = self.workers_segments.is_contained_coordinate(
+                    pt_exist = self.workers_segments.is_contained_coordinate(
                         self.rank, pt0, inner=False)
-                    if not coordinate_exist and (k0, *pt0) not in done_pt:
+                    if not pt_exist and (k0, *pt0) not in done_pt:
                         done_pt.add((k0, *pt0))
                         self.coordinate_update(k0, pt0, dz,
                                                coordinate_exist=False)

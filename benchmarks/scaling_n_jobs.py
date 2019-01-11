@@ -5,7 +5,7 @@ from time import sleep
 import matplotlib.pyplot as plt
 from collections import defaultdict
 
-from dicod.dicod import DICOD, ALGO_GS
+from dicod import dicod
 from dicod.utils import TimingLogs
 from utils.rand_problem import fun_rand_problem
 
@@ -89,7 +89,7 @@ def scaling_n_jobs(T=300, max_jobs=75, n_rep=10, save_dir=None, max_iter=5e6,
         dicod = DICOD(n_jobs=2, **common_args)
 
         runtimes = []
-        n_jobs = np.logspace(0, np.log2(75), 10, base=2)
+        n_jobs = np.logspace(0, np.log2(400), 10, base=2)
         n_jobs = [int(round(nj)) for nj in n_jobs if nj <= max_jobs]
         n_jobs = np.unique(n_jobs)
         n_jobs = n_jobs[::-1]
