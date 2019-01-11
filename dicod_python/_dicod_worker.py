@@ -227,6 +227,8 @@ class DICODWorker:
             self.info("Reach maximal iteration with {} coordinate updates. "
                       "Max of dz_opt is {}.", n_coordinate_updates,
                       abs(self.dz_opt).max())
+            while not self.check_no_transitting_message():
+                time.sleep(0.001)
             self.wait_status_changed(status=constants.STATUS_FINISHED)
 
         self.synchronize_workers()
