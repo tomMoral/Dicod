@@ -25,3 +25,8 @@ CHECK_BETA = TESTING_DICOD
 # If set to True, request the full z_hat from each worker. It should not change
 # the resulting solution.
 GET_OVERLAP_Z_HAT = TESTING_DICOD
+
+
+# If set to True, check that the computed beta are consistent on neighbor
+# workers.
+CHECK_WARM_BETA = TESTING_DICOD

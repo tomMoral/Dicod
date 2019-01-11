@@ -129,7 +129,9 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
 
     comm = _spawn_workers(n_jobs, hostfile)
     _send_task(comm, X_i, D, reg, z0, workers_segments, params)
+
     comm.Barrier()
+
     z_hat, ztz, ztX, _log = _recv_result(
         comm, D.shape, valid_shape, workers_segments, return_ztz=return_ztz,
         timing=timing, verbose=verbose)
@@ -162,10 +164,10 @@ def reconstruct_pobj(X, D, reg, _log, n_jobs, valid_shape=None, z0=None):
     next_cost = 1
     last_ii = [0] * n_jobs
     for i, (t_update, ii, rank, k0, pt0, dz) in enumerate(_log):
-        print("\rReconstructing cost {:7.2%}"
-              .format(np.log(up_ii)/np.log(max_ii)), end='', flush=True)
         z_hat[k0][tuple(pt0)] += dz
         up_ii += ii - last_ii[rank]
+        print("\rReconstructing cost {:7.2%}"
+              .format(np.log(up_ii)/np.log(max_ii)), end='', flush=True)
         last_ii[rank] = ii
         if up_ii >= next_cost:
             p_obj.append((up_ii, t_update, cost(X, z_hat, D, reg)))
@@ -204,6 +206,7 @@ def _spawn_workers(n_jobs, hostfile):
 
 def _send_task(comm, X, D, reg, z0, workers_segments, params):
     t_start = time()
+    n_jobs = workers_segments.effective_n_seg
     n_atoms, n_channels, *atom_shape = D.shape
 
     comm.bcast(params, root=MPI.ROOT)
@@ -213,7 +216,7 @@ def _send_task(comm, X, D, reg, z0, workers_segments, params):
     if params['debug']:
         X_alpha = np.zeros(X.shape, 'd')
 
-    for i_seg in range(workers_segments.effective_n_seg):
+    for i_seg in range(n_jobs):
         if params['has_z0']:
             worker_slice = workers_segments.get_seg_slice(i_seg)
             comm.Send([z0[worker_slice].ravel(), MPI.DOUBLE],
@@ -240,6 +243,19 @@ def _send_task(comm, X, D, reg, z0, workers_segments, params):
                 3 * (atom_shape[-1] - 1) *
                 (workers_segments.n_seg_per_axis[0] - 1)
                 )
+
+    if flags.CHECK_WARM_BETA:
+        pt_global = workers_segments.get_seg_shape(0, inner=True)
+        msg = np.empty(1, 'd')
+        value = []
+        for i_worker in range(n_jobs):
+
+            pt = workers_segments.get_local_coordinate(i_worker, pt_global)
+            if workers_segments.is_contained_coordinate(i_worker, pt):
+                comm.Recv([msg, MPI.DOUBLE], source=i_worker)
+                value.append(msg[0])
+        if len(value) > 1:
+            assert np.allclose(value[1:], value[0]), value
 
     comm.Barrier()
 

@@ -157,7 +157,7 @@ class DICODWorker:
             soft_locked = False
             if pt0 is not None and self.use_soft_lock:
                 lock_slices = self.workers_segments.get_touched_overlap_slices(
-                    self.rank, pt0, self.overlap)
+                    self.rank, pt0, np.array(self.overlap) + 1)
                 max_on_lock = 0
                 for u_slice in lock_slices:
                     # print(self.rank, inner_bounds, u_slice, max_on_lock)
@@ -222,7 +222,8 @@ class DICODWorker:
                         break
 
         else:
-            self.info("Reach maximal iteration. Max of dz_opt is {}.",
+            self.info("Reach maximal iteration with {} coordinate updates. "
+                      "Max of dz_opt is {}.", n_coordinate_updates,
                       abs(self.dz_opt).max())
             self.wait_status_changed(status=constants.STATUS_FINISHED)
 
@@ -253,6 +254,20 @@ class DICODWorker:
         if self.z0 is not None:
             self.freezed_support = None
             self.correct_beta_z0()
+
+        if flags.CHECK_WARM_BETA:
+            pt_global = self.workers_segments.get_seg_shape(0, inner=True)
+            pt = self.workers_segments.get_local_coordinate(self.rank,
+                                                            pt_global)
+            if self.workers_segments.is_contained_coordinate(self.rank, pt):
+                _, _, *atom_shape = self.D.shape
+                beta_slice = (Ellipsis,) + tuple([
+                    slice(v - size_ax + 1, v + size_ax - 1)
+                    for v, size_ax in zip(pt, atom_shape)
+                ])
+                msg = np.array(self.beta[beta_slice].sum(), dtype='d')
+                comm = MPI.Comm.Get_parent()
+                comm.Send([msg, MPI.DOUBLE], dest=0)
 
         if self.freeze_support:
             assert self.z0 is not None
@@ -408,7 +423,7 @@ class DICODWorker:
             pt_global = self.workers_segments.get_global_coordinate(
                 self.rank, pt0)
             workers = self.workers_segments.get_touched_segments(
-                pt=pt_global, radius=np.array(self.overlap)
+                pt=pt_global, radius=np.array(self.overlap) + 1
             )
             msg = np.array([k0, *pt_global, self.z0[(k0, *pt0)]], 'd')
             self.notify_neighbors(msg, workers)
@@ -416,6 +431,7 @@ class DICODWorker:
                 msg_send[i] += 1
 
         n_init_done = 0
+        done_pt = set()
         no_msg, init_done = False, False
         mpi_status = MPI.Status()
         while not init_done:
@@ -453,7 +469,8 @@ class DICODWorker:
                                                                      pt_global)
                     coordinate_exist = self.workers_segments.is_contained_coordinate(
                         self.rank, pt0, inner=False)
-                    if not coordinate_exist:
+                    if not coordinate_exist and (k0, *pt0) not in done_pt:
+                        done_pt.add((k0, *pt0))
                         self.coordinate_update(k0, pt0, dz,
                                                coordinate_exist=False)
 
