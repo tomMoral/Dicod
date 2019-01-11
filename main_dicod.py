@@ -50,7 +50,7 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     if args.jobs:
-        from utils.scaling_n_jobs import scaling_n_jobs
+        from benchmarks.scaling_n_jobs import scaling_n_jobs
         algorithm = ALGO_RANDOM if args.rcd else ALGO_GS
         # # Extract njobs in list of str
         # run = []
@@ -66,27 +66,27 @@ if __name__ == '__main__':
                    run=args.run, use_seg=args.seg)
 
     if args.lmbd:
-        from utils.scaling_lmbd import scaling_lmbd
+        from benchmarks.scaling_lmbd import scaling_lmbd
         scaling_lmbd(T=args.T, n_jobs=args.njobs, n_rep=args.nrep,
                      exp_dir=args.exp, max_iter=5e9, timeout=args.timeout,
                      hostfile=args.hostfile, lgg=False, optimizer=args.optim,
                      debug=args.d, seed=422742)
 
     if args.met:
-        from utils.compare_methods import compare_met
+        from benchmarks.compare_methods import compare_met
 
         compare_met(T=args.T, K=args.K, save_dir=args.exp, max_iter=5e8,
                     timeout=args.timeout, n_jobs=args.njobs, debug=args.d,
                     hostfile=args.hostfile, display=args.no_display)
 
     if args.step:
-        from utils.step_detect import step_detect
+        from benchmarks.step_detect import step_detect
         step_detect(exp_dir=args.exp, max_iter=5e6, timeout=args.timeout,
                     n_jobs=args.njobs, hostfile=args.hostfile,
                     n_epoch=args.nepoch, debug=args.d)
 
     if args.rand:
-        from utils.dict_learn import dict_learn
+        from benchmarks.dict_learn import dict_learn
         dict_learn(exp_dir=args.exp, max_iter=5e6, timeout=args.timeout,
                    n_jobs=args.njobs, hostfile=args.hostfile,
                    n_epoch=args.nepoch, debug=args.d)
