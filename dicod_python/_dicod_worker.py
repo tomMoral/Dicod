@@ -183,7 +183,6 @@ class DICODWorker:
                 workers = self.workers_segments.get_touched_segments(
                     pt=pt_global, radius=np.array(self.overlap) + 1
                 )
-                self.info("Pt {}, {} updated: {}", k0, pt_global, dz)
                 msg = np.array([k0, *pt_global, dz], 'd')
                 self.notify_neighbors(msg, workers)
 
