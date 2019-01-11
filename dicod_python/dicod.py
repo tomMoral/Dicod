@@ -261,7 +261,7 @@ def _send_task(comm, X, D, reg, z0, workers_segments, params):
 
     t_init = time() - t_start
     if params['verbose'] > 0:
-        print('\r[DICOD-{}:INFO] End initialization - {:.4}s'
+        print('\r[DICOD-{}:INFO] End initialization - {:.4}s'.ljust(80)
               .format(workers_segments.effective_n_seg, t_init))
     return
 

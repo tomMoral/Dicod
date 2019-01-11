@@ -4,10 +4,11 @@ Author : tommoral <thomas.moreau@inria.fr>
 """
 import os
 import sys
+import time
 import warnings
 import numpy as np
 from mpi4py import MPI
-import multiprocessing as mp
+from multiprocessing import util
 
 
 from .utils import constants
@@ -29,7 +30,7 @@ def get_reusable_workers(n_jobs=4, hostfile=None):
     if _worker_comm is None:
         _n_workers = n_jobs
         _worker_comm = _spawn_workers(n_jobs, hostfile)
-        mp.util.Finalize(None, shutdown_reusable_workers, exitpriority=20)
+        util.Finalize(None, shutdown_reusable_workers, exitpriority=20)
     else:
         if _n_workers != n_jobs:
             warnings.warn("You should not require different size")
@@ -41,10 +42,19 @@ def get_reusable_workers(n_jobs=4, hostfile=None):
 
 def send_command_to_reusable_workers(tag):
     global _worker_comm, _n_workers
+
+    t_start = time.time()
     msg = np.empty(1, dtype='i')
     msg[0] = tag
+    requests = []
     for i_worker in range(_n_workers):
-        _worker_comm.Send([msg, MPI.INT], dest=i_worker, tag=tag)
+        requests.append(_worker_comm.Issend([msg, MPI.INT], dest=i_worker,
+                                            tag=tag))
+    while requests:
+        if requests[0].Test():
+            requests.pop(0)
+        time.sleep(.001)
+    print("Sent message in {:.3f}s".format(time.time() - t_start))
 
 
 def shutdown_reusable_workers():
@@ -52,11 +62,13 @@ def shutdown_reusable_workers():
     if _worker_comm is not None:
         send_command_to_reusable_workers(constants.TAG_WORKER_STOP)
         _worker_comm.Barrier()
+        _worker_comm.Disconnect()
         _n_workers = None
         _worker_comm = None
 
 
 def _spawn_workers(n_jobs, hostfile):
+    t_start = time.time()
     info = MPI.Info.Create()
     # info.Set("map_bynode", '1')
     if hostfile and os.path.exists(hostfile):
@@ -71,4 +83,6 @@ def _spawn_workers(n_jobs, hostfile):
     else:
         comm = MPI.COMM_SELF.Spawn(sys.executable, args=[script_name],
                                    maxprocs=n_jobs, info=info)
+    comm.Barrier()
+    print("Started {} workers in {:.3}s".format(n_jobs, time.time() - t_start))
     return comm

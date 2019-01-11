@@ -14,7 +14,7 @@ def _wait_message():
     comm = MPI.Comm.Get_parent()
     mpi_status = MPI.Status()
     while not comm.Iprobe(status=mpi_status):
-        time.sleep(.1)
+        time.sleep(.001)
 
     # Receive a message
     msg = np.empty(1, dtype='i')
@@ -33,7 +33,13 @@ def _shutdown_mpi():
     comm.Disconnect()
 
 
+def sync_workers():
+    comm = MPI.Comm.Get_parent()
+    comm.Barrier()
+
+
 def main():
+    sync_workers()
     tag = _wait_message()
     while tag != constants.TAG_WORKER_STOP:
         if tag == constants.TAG_WORKER_RUN_DICOD:

@@ -56,8 +56,9 @@ class DICODWorker:
 
         self.size_msg = len(params['valid_shape']) + 2
 
-        self.info("Start DICOD with {} workers and strategy '{}'", self.n_jobs,
-                  self.strategy, global_msg=True)
+        self.info("Start DICOD with {} workers and strategy '{}' and soft_lock"
+                  "={}", self.n_jobs, self.strategy, self.use_soft_lock,
+                  global_msg=True)
 
         # Compute the shape of the worker segment.
         n_atoms, n_channels, *atom_shape = self.D.shape
@@ -153,17 +154,18 @@ class DICODWorker:
                 self.workers_segments.check_area_contained(self.rank,
                                                            pt0, self.overlap)
 
-            # Check if gthe coordinate is soft-locked or not.
+            # Check if the coordinate is soft-locked or not.
             soft_locked = False
-            if pt0 is not None and self.use_soft_lock:
+            if pt0 is not None and abs(dz) > self.tol and self.use_soft_lock:
                 lock_slices = self.workers_segments.get_touched_overlap_slices(
                     self.rank, pt0, np.array(self.overlap) + 1)
-                max_on_lock = 0
-                for u_slice in lock_slices:
-                    # print(self.rank, inner_bounds, u_slice, max_on_lock)
-                    max_on_lock = max(abs(self.dz_opt[u_slice]).max(),
-                                      max_on_lock)
-                soft_locked = max_on_lock > abs(dz)
+                # Only soft lock in the corners
+                if len(lock_slices) > 1:
+                    max_on_lock = 0
+                    for u_slice in lock_slices:
+                        max_on_lock = max(abs(self.dz_opt[u_slice]).max(),
+                                          max_on_lock)
+                    soft_locked = max_on_lock > abs(dz)
 
             # Update the selected coordinate and beta, only if the update is
             # greater than the convergence tolerance and is contained in the
@@ -179,8 +181,9 @@ class DICODWorker:
                 pt_global = self.workers_segments.get_global_coordinate(
                     self.rank, pt0)
                 workers = self.workers_segments.get_touched_segments(
-                    pt=pt_global, radius=self.overlap
+                    pt=pt_global, radius=np.array(self.overlap) + 1
                 )
+                self.info("Pt {}, {} updated: {}", k0, pt_global, dz)
                 msg = np.array([k0, *pt_global, dz], 'd')
                 self.notify_neighbors(msg, workers)
 
@@ -331,6 +334,8 @@ class DICODWorker:
         k0 = int(k0)
         pt0 = tuple([int(v) for v in pt0])
         pt0 = self.workers_segments.get_local_coordinate(self.rank, pt0)
+        assert not self.workers_segments.is_contained_coordinate(
+            self.rank, pt0, inner=True)
         coordinate_exist = self.workers_segments.is_contained_coordinate(
             self.rank, pt0, inner=False)
         self.coordinate_update(k0, pt0, dz, coordinate_exist=coordinate_exist)
