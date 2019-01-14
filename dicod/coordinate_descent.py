@@ -13,7 +13,7 @@ from .utils import debug_flags as flags
 from .utils.segmentation import Segmentation
 from .utils.csc import compute_ztz, compute_ztX
 from .utils.csc import compute_DtD, compute_norm_atoms
-from .utils.csc import cost, soft_thresholding, reconstruct
+from .utils.csc import compute_objective, soft_thresholding, reconstruct
 
 
 def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
@@ -90,16 +90,26 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     n_coordinates = z_hat.size
 
     t_update = 0
-    t_start = t_start_update = time.time()
+    t_start_update = time.time()
     beta, dz_opt = _init_beta(X_i, D, reg, z_i=z0, constants=constants,
                               z_positive=z_positive)
 
     if freeze_support:
         freezed_support = z0 == 0
         dz_opt[freezed_support] = 0
+    else:
+        freezed_support = None
+
+    t_start = time.time()
+    n_coordinate_updates = 0
+    if timeout is not None:
+        deadline = t_start + timeout
+    else:
+        deadline = None
     for ii in range(max_iter):
         if ii % 1000 == 0 and verbose > 0:
-            print("\rCD {:7.2%}".format(ii / max_iter), end='', flush=True)
+            print("\r[LGCD:PROGRESS] {:7.2%} iterations"
+                  .format(ii / max_iter), end='', flush=True)
 
         i_seg = segments.increment_seg(i_seg)
         if segments.is_active_segment(i_seg):
@@ -114,6 +124,7 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         # Update the selected coordinate and beta, only if the update is
         # greater than the convergence tolerance.
         if abs(dz) > tol:
+            n_coordinate_updates += 1
 
             # update beta
             beta, dz_opt = coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat,
@@ -129,7 +140,8 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
             if timing:
                 t_update += time.time() - t_start_update
                 if ii >= next_cost:
-                    p_obj.append((ii, t_update, cost(X_i, z_hat, D, reg)))
+                    p_obj.append((ii, t_update,
+                                  compute_objective(X_i, z_hat, D, reg)))
                     next_cost = next_cost * 2
                 t_start_update = time.time()
         elif strategy == "greedy":
@@ -140,10 +152,23 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
                               strategy, accumulator=accumulator):
             assert np.all(abs(dz_opt) <= tol)
             if verbose > 0:
-                print("[LGCD:INFO] converged after {} iterations"
+                print("\r[LGCD:INFO] converged after {} iterations"
                       .format(ii + 1))
 
             break
+
+        # Check is we reach the timeout
+        if deadline is not None and time.time() >= deadline:
+            if verbose > 0:
+                print("\r[LGCD:INFO] Reached timeout. Done {} coordinate "
+                      "updates. Max of |dz|={}."
+                      .format(n_coordinate_updates, abs(dz_opt).max()))
+            break
+    else:
+        if verbose > 0:
+            print("\r[LGCD:INFO] Reached max_iter. Done {} coordinate "
+                  "updates. Max of |dz|={}."
+                  .format(n_coordinate_updates, abs(dz_opt).max()))
 
     if verbose > 0:
         print("\r[LGCD:INFO] done in {:.3}s".format(time.time() - t_start))
@@ -225,15 +250,16 @@ def _select_coordinate(dz_opt, segments, i_seg, strategy='greedy',
     if strategy == 'random':
         rng = check_random_state(random_state)
         n_atoms, *valid_shape = dz_opt.shape
+        inner_bounds = segments.inner_bounds
         k0 = rng.randint(n_atoms)
         pt0 = ()
-        for size_valid_ax in valid_shape:
-            v0 = rng.randint(size_valid_ax)
+        for start, end in inner_bounds:
+            v0 = rng.randint(start, end)
             pt0 = pt0 + (v0,)
         dz = dz_opt[k0][pt0]
 
     elif strategy == 'greedy':
-        seg_slice = segments.get_seg_slice(i_seg)
+        seg_slice = segments.get_seg_slice(i_seg, inner=True)
         dz_opt_seg = dz_opt[seg_slice]
         i0 = abs(dz_opt_seg).argmax()
         k0, *pt0 = np.unravel_index(i0, dz_opt_seg.shape)

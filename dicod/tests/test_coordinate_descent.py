@@ -1,6 +1,6 @@
 import numpy as np
 
-from dicod.utils.csc import cost
+from dicod.utils.csc import compute_objective
 from dicod.coordinate_descent import _init_beta
 
 
@@ -39,11 +39,11 @@ def test_init_beta():
 
         # Check that the chosen value is optimal
         z[k, h, w] = z_old + dz_opt[k, h, w]
-        c0 = cost(X, z, D, lmbd)
+        c0 = compute_objective(X, z, D, lmbd)
 
         eps = 1e-5
         z[k, h, w] -= 2.1 * eps
         for _ in range(5):
             z[k, h, w] += eps
-            assert c0 <= cost(X, z, D, lmbd)
+            assert c0 <= compute_objective(X, z, D, lmbd)
         z[k, h, w] = z_old

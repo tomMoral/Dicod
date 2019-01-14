@@ -9,7 +9,8 @@ from dicod.utils import check_random_state
 
 @pytest.mark.parametrize('valid_shape, atom_shape', [((500,), (30,)),
                                                      ((72, 60), (10, 8))])
-def test_ztz(valid_shape, atom_shape):
+@pytest.mark.parametrize('sparsity', [1, .01])
+def test_ztz(valid_shape, atom_shape, sparsity):
     n_atoms = 7
     n_channels = 5
     random_state = None
@@ -17,6 +18,7 @@ def test_ztz(valid_shape, atom_shape):
     rng = check_random_state(random_state)
 
     z = rng.randn(n_atoms, *valid_shape)
+    z *= rng.rand(*z.shape) < sparsity
     D = rng.randn(n_atoms, n_channels, *atom_shape)
 
     ztz = compute_ztz(z, atom_shape)

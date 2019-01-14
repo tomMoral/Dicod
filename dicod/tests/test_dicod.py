@@ -3,12 +3,12 @@ import pytest
 import numpy as np
 
 
-from dicod.dicod import dicod
-from dicod.utils.csc import reconstruct
+from dicod import dicod
 from dicod.utils import check_random_state
 from dicod.coordinate_descent import _init_beta
 from dicod.utils.csc import compute_ztz, compute_ztX
 from dicod.utils.shape_helpers import get_full_shape
+from dicod.utils.csc import reconstruct, compute_objective
 
 VERBOSE = 10
 N_WORKERS = 4
@@ -127,3 +127,31 @@ def test_freeze_support(valid_shape, atom_shape):
                       hostfile=TEST_HOSTFILE, verbose=VERBOSE)
 
     assert np.all(z_hat[z == 0] == 0)
+
+
+@pytest.mark.parametrize('valid_shape, atom_shape', [((500,), (30,)),
+                                                     ((72, 60), (10, 8))])
+def test_cost(valid_shape, atom_shape):
+
+    tol = .5
+    reg = 0
+    n_atoms = 7
+    n_channels = 5
+    random_state = None
+
+    sig_shape = get_full_shape(valid_shape, atom_shape)
+
+    rng = check_random_state(random_state)
+
+    D = rng.randn(n_atoms, n_channels, *atom_shape)
+    D /= np.sqrt(np.sum(D * D, axis=(1, 2), keepdims=True))
+    z = rng.randn(n_atoms, *valid_shape)
+    z *= rng.rand(n_atoms, *valid_shape) > .5
+
+    X = rng.randn(n_channels, *sig_shape)
+
+    z_hat, *_, cost = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
+                            max_iter=1000, freeze_support=True,
+                            hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+
+    assert np.isclose(cost, compute_objective(X, z_hat, D, reg))

@@ -27,6 +27,19 @@ def test_segmentation_coverage():
 
             assert np.all(z == 1)
 
+    z = np.zeros(sig_shape)
+    inner_bounds = [(8, 100), (3, 50)]
+    inner_slice = [slice(start, end) for start, end in inner_bounds]
+    segments = Segmentation(n_seg=7, inner_bounds=inner_bounds,
+                            full_shape=sig_shape)
+    for i_seg in range(segments.effective_n_seg):
+        seg_slice = segments.get_seg_slice(i_seg)
+        z[seg_slice] += 1
+
+    assert np.all(z[inner_slice] == 1)
+    z[inner_slice] = 0
+    assert np.all(z == 0)
+
 
 def test_segmentation_coverage_overlap():
     sig_shape = (505, 407)

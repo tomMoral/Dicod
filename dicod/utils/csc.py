@@ -63,10 +63,21 @@ def compute_ztz(z, atom_shape, padding_shape=None):
     z_pad = np.pad(z, padding_shape, mode='constant')
     z = z_pad[inner_slice]
 
-    # compute the cross correlation between z and z_pad
-    ztz = np.array([[fftconvolve(z_pad_k0, z_k, mode='valid')
-                     for z_k in z]
-                    for z_pad_k0 in np.flip(z_pad, axis=flip_axis)])
+    # Choose between sparse and fft
+    z_nnz = z.nonzero()
+    ratio_nnz = len(z_nnz[0]) / z.size
+    if ratio_nnz < .05:
+        ztz = np.zeros(ztz_shape)
+        for k0, *pt in zip(*z_nnz):
+            z_pad_slice = tuple([slice(None)] + [
+                slice(v, v + 2 * size_ax - 1)
+                for v, size_ax in zip(pt, atom_shape)])
+            ztz[k0] += z[(k0, *pt)] * z_pad[z_pad_slice]
+    else:
+        # compute the cross correlation between z and z_pad
+        ztz = np.array([[fftconvolve(z_pad_k0, z_k, mode='valid')
+                         for z_k in z]
+                        for z_pad_k0 in np.flip(z_pad, axis=flip_axis)])
     assert ztz.shape == ztz_shape, (ztz.shape, ztz_shape)
     return ztz
 
@@ -119,6 +130,6 @@ def reconstruct(z_hat, D):
     return X_hat
 
 
-def cost(X, z_hat, D, lmbd):
+def compute_objective(X, z_hat, D, reg):
     res = X - reconstruct(z_hat, D)
-    return 0.5 * np.sum(res ** 2) + lmbd * abs(z_hat).sum()
+    return 0.5 * np.sum(res ** 2) + reg * abs(z_hat).sum()

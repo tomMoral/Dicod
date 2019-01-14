@@ -7,6 +7,7 @@ import time
 import numpy as np
 from mpi4py import MPI
 
+from dicod.utils.csc import reconstruct
 from dicod.utils import check_random_state
 from dicod.utils import debug_flags as flags
 from dicod.utils import constants as constants
@@ -51,19 +52,18 @@ class DICODWorker:
         self.use_soft_lock = params['use_soft_lock']
         self.freeze_support = params['freeze_support']
 
+        if self.timeout:
+            self.timeout *= 3
+
         self.random_state = params['random_state']
         if isinstance(self.random_state, int):
             self.random_state += self.rank
 
         self.size_msg = len(params['valid_shape']) + 2
 
-        self.info("Start DICOD with {} workers and strategy '{}' and soft_lock"
-                  "={}", self.n_jobs, self.strategy, self.use_soft_lock,
-                  global_msg=True)
-
         # Compute the shape of the worker segment.
-        n_atoms, n_channels, *atom_shape = self.D.shape
-        self.overlap = np.array(atom_shape) - 1
+        n_atoms, n_channels, *atom_support = self.D.shape
+        self.overlap = np.array(atom_support) - 1
         self.workers_segments = Segmentation(
             n_seg=params['workers_topology'],
             signal_shape=params['valid_shape'],
@@ -71,7 +71,7 @@ class DICODWorker:
 
         # Receive X and z from the master node.
         worker_shape = self.workers_segments.get_seg_shape(self.rank)
-        X_shape = (n_channels,) + get_full_shape(worker_shape, atom_shape)
+        X_shape = (n_channels,) + get_full_shape(worker_shape, atom_support)
         if params['has_z0']:
             z0_shape = (n_atoms,) + worker_shape
             self.z0 = self.get_signal(z0_shape, params['debug'])
@@ -87,7 +87,7 @@ class DICODWorker:
         local_seg_shape = None
         if self.n_seg == 'auto':
             n_seg = None
-            local_seg_shape = 2 * np.array(atom_shape) - 1
+            local_seg_shape = 2 * np.array(atom_support) - 1
 
         # Get local inner bounds. First, compute the seg_bound without overlap
         # in local coordinates and then convert the bounds in the local
@@ -101,6 +101,11 @@ class DICODWorker:
         self.local_segments = Segmentation(
             n_seg=n_seg, seg_shape=local_seg_shape, inner_bounds=inner_bounds,
             full_shape=worker_shape)
+
+        self.info("Start DICOD with {} workers, strategy '{}', soft_lock"
+                  "={} and n_seg={}({})", self.n_jobs, self.strategy,
+                  self.use_soft_lock, self.n_seg,
+                  self.local_segments.effective_n_seg, global_msg=True)
 
     def run(self):
 
@@ -129,7 +134,7 @@ class DICODWorker:
         diverging = False
         if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
             import ipdb; ipdb.set_trace()  # noqa: E702
-        t_start = time.time()
+        self.t_start = t_start = time.time()
         if self.timeout is not None:
             deadline = t_start + self.timeout
         else:
@@ -147,6 +152,9 @@ class DICODWorker:
                 k0, pt0, dz = _select_coordinate(
                     self.dz_opt, self.local_segments, i_seg,
                     strategy=self.strategy, random_state=random_state)
+
+                assert self.workers_segments.is_contained_coordinate(
+                    self.rank, pt0, inner=True), pt0
             else:
                 k0, pt0, dz = None, None, 0
 
@@ -189,6 +197,7 @@ class DICODWorker:
                     pt=pt_global, radius=np.array(self.overlap) + 1
                 )
                 msg = np.array([k0, *pt_global, dz], 'd')
+
                 self.notify_neighbors(msg, workers)
 
                 if self.timing:
@@ -234,7 +243,8 @@ class DICODWorker:
                                              n_coordinate_updates)
                 break
         else:
-            self.info("Reached max_iter", n_coordinate_updates)
+            self.stop_before_convergence("Reached max_iter",
+                                         n_coordinate_updates)
 
         self.synchronize_workers()
         assert diverging or self.check_no_transitting_message()
@@ -260,6 +270,9 @@ class DICODWorker:
         # Log all updates for logging purpose
         self._log_updates = []
 
+        # Avoid printing progress too often
+        self._last_progress = 0
+
         # Initialization of the auxillary variable for LGCD
         self.beta, self.dz_opt = _init_beta(
             self.X_worker, self.D, self.reg, z_i=self.z0, constants=constants,
@@ -274,10 +287,10 @@ class DICODWorker:
             pt = self.workers_segments.get_local_coordinate(self.rank,
                                                             pt_global)
             if self.workers_segments.is_contained_coordinate(self.rank, pt):
-                _, _, *atom_shape = self.D.shape
+                _, _, *atom_support = self.D.shape
                 beta_slice = (Ellipsis,) + tuple([
                     slice(v - size_ax + 1, v + size_ax - 1)
-                    for v, size_ax in zip(pt, atom_shape)
+                    for v, size_ax in zip(pt, atom_support)
                 ])
                 msg = np.array(self.beta[beta_slice].sum(), dtype='d')
                 comm = MPI.Comm.Get_parent()
@@ -340,13 +353,13 @@ class DICODWorker:
         return worker_status
 
     def message_update_beta(self, msg):
-        k0, *pt0, dz = msg
+        k0, *pt_global, dz = msg
 
         k0 = int(k0)
-        pt0 = tuple([int(v) for v in pt0])
-        pt0 = self.workers_segments.get_local_coordinate(self.rank, pt0)
+        pt_global = tuple([int(v) for v in pt_global])
+        pt0 = self.workers_segments.get_local_coordinate(self.rank, pt_global)
         assert not self.workers_segments.is_contained_coordinate(
-            self.rank, pt0, inner=True)
+            self.rank, pt0, inner=True), (pt_global, pt0)
         coordinate_exist = self.workers_segments.is_contained_coordinate(
             self.rank, pt0, inner=False)
         self.coordinate_update(k0, pt0, dz, coordinate_exist=coordinate_exist)
@@ -418,7 +431,7 @@ class DICODWorker:
         return status
 
     def compute_sufficient_statistics(self):
-        _, _, *atom_shape = self.D.shape
+        _, _, *atom_support = self.D.shape
         z_slice = (Ellipsis,) + tuple([
             slice(start, end)
             for start, end in self.local_segments.inner_bounds
@@ -426,13 +439,13 @@ class DICODWorker:
         X_slice = (Ellipsis,) + tuple([
             slice(start, end + size_atom_ax - 1)
             for (start, end), size_atom_ax in zip(
-                self.local_segments.inner_bounds, atom_shape)
+                self.local_segments.inner_bounds, atom_support)
         ])
 
         ztX = compute_ztX(self.z_hat[z_slice], self.X_worker[X_slice])
 
         padding_shape = self.workers_segments.get_padding_to_overlap(self.rank)
-        ztz = compute_ztz(self.z_hat, atom_shape,
+        ztz = compute_ztz(self.z_hat, atom_support,
                           padding_shape=padding_shape)
         return np.array(ztz, dtype='d'), np.array(ztX, dtype='d')
 
@@ -499,15 +512,39 @@ class DICODWorker:
             else:
                 time.sleep(.001)
 
+    def compute_cost(self):
+        X_hat_worker = reconstruct(self.z_hat, self.D)
+        inner_bounds = self.local_segments.inner_bounds
+        inner_slice = [Ellipsis] + [
+            slice(start_ax, end_ax) for start_ax, end_ax in inner_bounds]
+        X_hat_slice = inner_slice.copy()
+        i_seg = self.rank
+        ax_rank_offset = self.workers_segments.effective_n_seg
+        for ax, n_seg_ax in enumerate(self.workers_segments.n_seg_per_axis):
+            ax_rank_offset //= n_seg_ax
+            ax_i_seg = i_seg // ax_rank_offset
+            i_seg % ax_rank_offset
+            if (ax_i_seg + 1) % n_seg_ax == 0:
+                s = inner_slice[ax + 1]
+                X_hat_slice[ax + 1] = slice(s.start, None)
+        inner_slice, X_hat_slice = tuple(inner_slice), tuple(X_hat_slice)
+        diff = (X_hat_worker[X_hat_slice] - self.X_worker[X_hat_slice]).ravel()
+        cost = .5 * np.dot(diff, diff)
+        return cost + self.reg * abs(self.z_hat[inner_slice]).sum()
+
     ###########################################################################
     #     Display utilities
     ###########################################################################
 
     def progress(self, ii, max_ii, unit):
-        if max_ii > 10000 and (ii % 100) != 0:
+        t_progress = time.time()
+        if t_progress - self._last_progress < 1:
             return
-        self._log("progress : {:7.2%} {}", ii / max_ii, unit, level=1,
-                  level_name="PROGRESS", global_msg=True, endline=False)
+        self._last_progress = t_progress
+        self._log("{:.0f}s - progress : {:7.2%} {}",
+                  time.time() - self.t_start,
+                  ii / max_ii, unit, level=1, level_name="PROGRESS",
+                  global_msg=True, endline=False)
 
     def info(self, msg, *args, global_msg=False):
         self._log(msg, *args, level=1, level_name="INFO",
@@ -638,7 +675,8 @@ class DICODWorker:
 
     def _send_result_mpi(self, iterations, runtime):
         comm = MPI.Comm.Get_parent()
-        _, _, *atom_shape = self.D.shape
+        self.info("Reducing the distributed results", global_msg=True)
+        _, _, *atom_support = self.D.shape
 
         if flags.GET_OVERLAP_Z_HAT:
             res_slice = (Ellipsis,)
@@ -654,8 +692,11 @@ class DICODWorker:
 
         if self.return_ztz:
             ztz, ztX = self.compute_sufficient_statistics()
-            comm.Reduce([ztz, MPI.DOUBLE], None, MPI.SUM, root=0)
-            comm.Reduce([ztX, MPI.DOUBLE], None, MPI.SUM, root=0)
+            comm.Reduce([ztz, MPI.DOUBLE], None, op=MPI.SUM, root=0)
+            comm.Reduce([ztX, MPI.DOUBLE], None, op=MPI.SUM, root=0)
+
+        cost = self.compute_cost()
+        comm.reduce(cost, op=MPI.SUM, root=0)
 
         if self.timing:
             comm.send(self._log_updates, dest=0)

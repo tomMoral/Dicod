@@ -8,10 +8,10 @@ import numpy as np
 from time import time
 from mpi4py import MPI
 
-from .utils.csc import cost
 from .utils import constants
 from .utils.mpi import broadcast_array
 from .utils import debug_flags as flags
+from .utils.csc import compute_objective
 from .utils.segmentation import Segmentation
 from .coordinate_descent import coordinate_descent
 
@@ -128,24 +128,25 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
             raise ValueError("Using too many cores.")
 
     comm = _spawn_workers(n_jobs, hostfile)
-    _send_task(comm, X_i, D, reg, z0, workers_segments, params)
+    t_init = _send_task(comm, X_i, D, reg, z0, workers_segments, params)
 
     comm.Barrier()
 
-    z_hat, ztz, ztX, _log = _recv_result(
+    z_hat, ztz, ztX, cost, _log, t_reduce = _recv_result(
         comm, D.shape, valid_shape, workers_segments, return_ztz=return_ztz,
         timing=timing, verbose=verbose)
     comm.Barrier()
 
     if timing:
-        p_obj = reconstruct_pobj(X_i, D, reg, _log, n_jobs=n_jobs,
-                                 valid_shape=valid_shape, z0=z0)
+        p_obj = reconstruct_pobj(X_i, D, reg, _log, t_init, t_reduce,
+                                 n_jobs=n_jobs, valid_shape=valid_shape, z0=z0)
     else:
         p_obj = None
-    return z_hat, ztz, ztX, p_obj
+    return z_hat, ztz, ztX, p_obj, cost
 
 
-def reconstruct_pobj(X, D, reg, _log, n_jobs, valid_shape=None, z0=None):
+def reconstruct_pobj(X, D, reg, _log, t_init, t_reduce, n_jobs,
+                     valid_shape=None, z0=None):
     n_atoms = D.shape[0]
     if z0 is None:
         z_hat = np.zeros((n_atoms, *valid_shape))
@@ -160,21 +161,27 @@ def reconstruct_pobj(X, D, reg, _log, n_jobs, valid_shape=None, z0=None):
     max_ii = np.sum(max_ii)
 
     up_ii = 0
-    p_obj = []
-    next_cost = 1
+    p_obj = [(up_ii, t_init, compute_objective(X, z_hat, D, reg))]
+    next_ii_cost = 1
     last_ii = [0] * n_jobs
     for i, (t_update, ii, rank, k0, pt0, dz) in enumerate(_log):
         z_hat[k0][tuple(pt0)] += dz
         up_ii += ii - last_ii[rank]
-        print("\rReconstructing cost {:7.2%}"
-              .format(np.log(up_ii)/np.log(max_ii)), end='', flush=True)
         last_ii[rank] = ii
-        if up_ii >= next_cost:
-            p_obj.append((up_ii, t_update, cost(X, z_hat, D, reg)))
-            next_cost = next_cost * 2
+        if up_ii >= next_ii_cost:
+            p_obj.append((up_ii, t_update + t_init, compute_objective(X, z_hat,
+                                                                      D, reg)))
+            next_ii_cost = next_ii_cost * 2
+            print("\rReconstructing cost {:7.2%}"
+                  .format(np.log2(up_ii)/np.log2(max_ii)), end='', flush=True)
+        elif i % 1000:
+            print("\rReconstructing cost {:7.2%}"
+                  .format(np.log2(up_ii)/np.log2(max_ii)), end='', flush=True)
     print('\rReconstruction cost: done'.ljust(40))
 
-    p_obj.append((up_ii, t_update, cost(X, z_hat, D, reg)))
+    final_cost = compute_objective(X, z_hat, D, reg)
+    p_obj.append((up_ii, t_update, final_cost))
+    p_obj.append((up_ii, t_init + t_update + t_reduce, final_cost))
     return np.array(p_obj)
 
 
@@ -263,7 +270,7 @@ def _send_task(comm, X, D, reg, z0, workers_segments, params):
     if params['verbose'] > 0:
         print('\r[DICOD-{}:INFO] End initialization - {:.4}s'.ljust(80)
               .format(workers_segments.effective_n_seg, t_init))
-    return
+    return t_init
 
 
 def _recv_result(comm, D_shape, valid_shape, workers_segments,
@@ -289,12 +296,14 @@ def _recv_result(comm, D_shape, valid_shape, workers_segments,
         ztz_shape = tuple([2 * size_atom_ax - 1
                           for size_atom_ax in atom_shape])
         ztz = np.zeros((n_atoms, n_atoms, *ztz_shape), dtype='d')
-        comm.Reduce(None, [ztz, MPI.DOUBLE], MPI.SUM, root=MPI.ROOT)
+        comm.Reduce(None, [ztz, MPI.DOUBLE], op=MPI.SUM, root=MPI.ROOT)
 
         ztX = np.zeros((n_atoms, n_channels) + tuple(atom_shape), dtype='d')
-        comm.Reduce(None, [ztX, MPI.DOUBLE], MPI.SUM, root=MPI.ROOT)
+        comm.Reduce(None, [ztX, MPI.DOUBLE], op=MPI.SUM, root=MPI.ROOT)
     else:
         ztz, ztX = None, None
+
+    cost = comm.reduce(None, op=MPI.SUM, root=MPI.ROOT)
 
     _log = []
     if timing:
@@ -314,4 +323,4 @@ def _recv_result(comm, D_shape, valid_shape, workers_segments,
         print('\r[DICOD-{}:DEBUG] End finalization - {:.4}s'
               .format(workers_segments.effective_n_seg, t_reduce))
 
-    return z_hat, ztz, ztX, _log
+    return z_hat, ztz, ztX, cost, _log, t_reduce
