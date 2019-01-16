@@ -339,24 +339,24 @@ class DICODWorker:
         while MPI.COMM_WORLD.Iprobe(status=mpi_status):
             src = mpi_status.source
             tag = mpi_status.tag
-            if tag == constants.TAG_UPDATE_BETA:
+            if tag == constants.TAG_DICOD_UPDATE_BETA:
                 if worker_status == constants.STATUS_PAUSED:
-                    self.notify_worker_status(constants.TAG_RUNNING_WORKER,
-                                              wait=True)
+                    self.notify_worker_status(
+                        constants.TAG_DICOD_RUNNING_WORKER, wait=True)
                     worker_status = constants.STATUS_RUNNING
-            elif tag == constants.TAG_STOP:
+            elif tag == constants.TAG_DICOD_STOP:
                 worker_status = constants.STATUS_STOP
-            elif tag == constants.TAG_PAUSED_WORKER:
+            elif tag == constants.TAG_DICOD_PAUSED_WORKER:
                 self.n_paused_worker += 1
                 assert self.n_paused_worker <= self.n_jobs
-            elif tag == constants.TAG_RUNNING_WORKER:
+            elif tag == constants.TAG_DICOD_RUNNING_WORKER:
                 self.n_paused_worker -= 1
                 assert self.n_paused_worker >= 0
 
             msg = np.empty(self.size_msg, 'd')
             MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=src, tag=tag)
 
-            if tag == constants.TAG_UPDATE_BETA:
+            if tag == constants.TAG_DICOD_UPDATE_BETA:
                 self.message_update_beta(msg)
 
         if self.n_paused_worker == self.n_jobs:
@@ -389,20 +389,20 @@ class DICODWorker:
         assert self.rank in neighbors
         for i_neighbor in neighbors:
             if i_neighbor != self.rank:
-                req = self.send_message(msg, constants.TAG_UPDATE_BETA,
+                req = self.send_message(msg, constants.TAG_DICOD_UPDATE_BETA,
                                         i_neighbor, wait=False)
                 self.messages.append(req)
 
     def notify_worker_status(self, tag, i_worker=0, wait=False):
         # handle the messages from Worker0 to himself.
         if self.rank == 0 and i_worker == 0:
-            if tag == constants.TAG_PAUSED_WORKER:
+            if tag == constants.TAG_DICOD_PAUSED_WORKER:
                 self.n_paused_worker += 1
                 assert self.n_paused_worker <= self.n_jobs
-            elif tag == constants.TAG_RUNNING_WORKER:
+            elif tag == constants.TAG_DICOD_RUNNING_WORKER:
                 self.n_paused_worker -= 1
                 assert self.n_paused_worker >= 0
-            elif tag == constants.TAG_INIT_DONE:
+            elif tag == constants.TAG_DICOD_INIT_DONE:
                 pass
             else:
                 raise ValueError("Got tag {}".format(tag))
@@ -419,7 +419,7 @@ class DICODWorker:
                 self.process_messages(worker_status=status)
                 time.sleep(0.001)
 
-        self.notify_worker_status(constants.TAG_PAUSED_WORKER)
+        self.notify_worker_status(constants.TAG_DICOD_PAUSED_WORKER)
         self.debug("paused worker")
 
         # Wait for all sent message to be processed
@@ -433,7 +433,7 @@ class DICODWorker:
 
         if self.rank == 0 and status == constants.STATUS_STOP:
             for i_worker in range(1, self.n_jobs):
-                self.notify_worker_status(constants.TAG_STOP, i_worker,
+                self.notify_worker_status(constants.TAG_DICOD_STOP, i_worker,
                                           wait=True)
         elif status == constants.STATUS_RUNNING:
             self.debug("wake up")
@@ -483,12 +483,12 @@ class DICODWorker:
         while not init_done:
             if n_init_done == self.n_jobs:
                 for i_worker in range(1, self.n_jobs):
-                    self.notify_worker_status(constants.TAG_INIT_DONE,
+                    self.notify_worker_status(constants.TAG_DICOD_INIT_DONE,
                                               i_worker=i_worker)
                 init_done = True
             if not no_msg:
                 if self.check_no_transitting_message(check_incoming=False):
-                    self.notify_worker_status(constants.TAG_INIT_DONE)
+                    self.notify_worker_status(constants.TAG_DICOD_INIT_DONE)
                     if self.rank == 0:
                         n_init_done += 1
                     assert len(self.messages) == 0
@@ -497,7 +497,7 @@ class DICODWorker:
             if MPI.COMM_WORLD.Iprobe(status=mpi_status):
                 tag = mpi_status.tag
                 src = mpi_status.source
-                if tag == constants.TAG_INIT_DONE:
+                if tag == constants.TAG_DICOD_INIT_DONE:
                     if self.rank == 0:
                         n_init_done += 1
                     else:
@@ -506,7 +506,7 @@ class DICODWorker:
                 msg = np.empty(self.size_msg, 'd')
                 MPI.COMM_WORLD.Recv([msg, MPI.DOUBLE], source=src, tag=tag)
 
-                if tag == constants.TAG_UPDATE_BETA:
+                if tag == constants.TAG_DICOD_UPDATE_BETA:
                     msg_recv[src] += 1
                     k0, *pt_global, dz = msg
                     k0 = int(k0)
@@ -571,10 +571,10 @@ class DICODWorker:
             if global_msg:
                 if self.rank != 0:
                     return
-                msg_fmt = constants.GLOBAL_OUTPUT_TAG + msg
+                msg_fmt = constants.GLOBAL_OUTPUT_TAG_DICOD + msg
                 identity = self.n_jobs
             else:
-                msg_fmt = constants.WORKER_OUTPUT_TAG + msg
+                msg_fmt = constants.WORKER_OUTPUT_TAG_DICOD + msg
                 identity = self.rank
             if endline:
                 kwargs = {}
@@ -676,13 +676,13 @@ class DICODWorker:
 
         sig_worker = np.empty(sig_shape, dtype='d')
         comm.Recv([sig_worker.ravel(), MPI.DOUBLE], source=0,
-                  tag=constants.TAG_ROOT + rank)
+                  tag=constants.TAG_DICOD_ROOT + rank)
 
         if debug:
 
             X_alpha = 0.25 * np.ones(sig_shape)
             comm.Send([X_alpha.ravel(), MPI.DOUBLE], dest=0,
-                      tag=constants.TAG_ROOT + rank)
+                      tag=constants.TAG_DICOD_ROOT + rank)
 
         return sig_worker
 
@@ -707,7 +707,7 @@ class DICODWorker:
 
         z_worker = self.z_hat[res_slice].ravel()
         comm.Send([z_worker, MPI.DOUBLE], dest=0,
-                  tag=constants.TAG_ROOT + self.rank)
+                  tag=constants.TAG_DICOD_ROOT + self.rank)
 
         if self.return_ztz:
             ztz, ztX = self.compute_sufficient_statistics()

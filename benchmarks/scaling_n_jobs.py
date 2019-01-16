@@ -78,7 +78,7 @@ def run_scaling_benchmark(max_n_jobs, n_rep=1):
     atom_support = (8, 8)
 
     verbose = 1
-    timeout = 7200
+    timeout = 9000
     max_iter = int(1e8)
 
     dicod_kwargs = dict(z_positive=False, use_soft_lock=True)

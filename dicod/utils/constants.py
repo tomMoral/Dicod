@@ -1,18 +1,30 @@
+"""Constants for interprocess communication
 
+Author : tommoral <thomas.moreau@inria.fr>
+"""
 
 # Inter-process communication constants
-TAG_STOP = 0
-TAG_UPDATE_BETA = 1
-TAG_PAUSED_WORKER = 2
-TAG_RUNNING_WORKER = 3
-TAG_INIT_DONE = 4
-
 TAG_ROOT = 4242
 
-
 # Worker control flow
-TAG_WORKER_STOP = 16
-TAG_WORKER_RUN_DICOD = 17
+TAG_WORKER_STOP = 0
+TAG_WORKER_RUN_DICOD = 1
+TAG_WORKER_RUN_DICODIL = 2
+
+# DICOD worker control messages
+TAG_DICOD_STOP = 8
+TAG_DICOD_UPDATE_BETA = 9
+TAG_DICOD_PAUSED_WORKER = 10
+TAG_DICOD_RUNNING_WORKER = 11
+TAG_DICOD_INIT_DONE = 12
+
+# DICODIL worker control tags
+TAG_DICODIL_STOP = 16
+TAG_DICODIL_UPDATE_Z = 17
+TAG_DICODIL_UPDATE_D = 18
+TAG_DICODIL_GET_COST = 19
+TAG_DICODIL_GET_Z_HAT = 20
+TAG_DICODIL_GET_SUFFICIENT_STAT = 21
 
 
 # inter-process message size

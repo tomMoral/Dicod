@@ -8,8 +8,15 @@ def dicodil_worker():
     dicod.receive_task()
 
     tag = wait_message()
-    while tag != constants.TAG_WORKER_STOP:
-        if tag == constants.TAG_WORKER_RUN_DICOD:
-            dicod = DICODWorker(backend='mpi')
-            dicod.run()
+    while tag != constants.TAG_DICODIL_STOP_DICODIL:
+        if tag == constants.TAG_DICODIL_UPDATE_Z:
+            n_coord_updated, runtime = dicod.compute_z_hat()
+        if tag == constants.TAG_DICODIL_UPDATE_D:
+            dicod.D = dicod.get_D()
+        if tag == constants.TAG_DICODIL_GET_COST:
+            dicod._return_cost_mpi()
+        if tag == constants.TAG_DICODIL_GET_Z_HAT:
+            dicod._return_signal_mpi()
+        if tag == constants.TAG_DICODIL_GET_SUFFICIENT_STAT:
+            dicod._return_sufficient_statistics_mpi()
         tag = wait_message()
