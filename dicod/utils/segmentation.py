@@ -397,3 +397,7 @@ class Segmentation:
                  overlap_ax - (end_ax - end_in_ax))
             ]
         return padding_shape
+
+    def reset(self):
+        # Re-activate all the segments
+        self.set_active_segments(range(self.effective_n_seg))

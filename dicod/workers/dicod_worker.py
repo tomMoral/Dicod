@@ -35,9 +35,10 @@ class DICODWorker:
     def __init__(self, backend):
         self._backend = backend
 
+    def receive_task(self):
         # Retrieve different constants from the base communicator and store
         # then in the class.
-        self.rank, self.n_jobs, params, self.D = self.get_params()
+        self.rank, self.n_jobs, params = self.get_params()
 
         self.tol = params['tol']
         self.reg = params['reg']
@@ -62,6 +63,7 @@ class DICODWorker:
         self.size_msg = len(params['valid_shape']) + 2
 
         # Compute the shape of the worker segment.
+        self.D = self.get_D()
         n_atoms, n_channels, *atom_support = self.D.shape
         self.overlap = np.array(atom_support) - 1
         self.workers_segments = Segmentation(
@@ -107,7 +109,7 @@ class DICODWorker:
                   self.use_soft_lock, self.n_seg,
                   self.local_segments.effective_n_seg, global_msg=True)
 
-    def run(self):
+    def compute_z_hat(self):
 
         # Initialization of the algorithm variables
         random_state = check_random_state(self.random_state)
@@ -249,6 +251,12 @@ class DICODWorker:
         self.synchronize_workers()
         assert diverging or self.check_no_transitting_message()
         runtime = time.time() - t_start
+
+        return n_coordinate_updates, runtime
+
+    def run(self):
+        self.receive_task()
+        n_coordinate_updates, runtime = self.compute_z_hat()
         self.send_result(n_coordinate_updates, runtime)
 
     def stop_before_convergence(self, msg, n_coordinate_updates):
@@ -277,6 +285,9 @@ class DICODWorker:
         self.beta, self.dz_opt = _init_beta(
             self.X_worker, self.D, self.reg, z_i=self.z0, constants=constants,
             z_positive=self.z_positive)
+
+        # Make sure all segments are activated
+        self.local_segments.reset()
 
         if self.z0 is not None:
             self.freezed_support = None
@@ -615,6 +626,15 @@ class DICODWorker:
             raise NotImplementedError("Backend {} is not implemented"
                                       .format(self._backend))
 
+    def get_D(self):
+        """Receive a dictionary D"""
+        if self._backend == "mpi":
+            comm = MPI.Comm.Get_parent()
+            return recv_broadcasted_array(comm)
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
+
     def shutdown(self):
         if self._backend == "mpi":
             self._shutdown_mpi()
@@ -648,8 +668,7 @@ class DICODWorker:
         rank = comm.Get_rank()
         n_jobs = comm.Get_size()
         params = comm.bcast(None, root=0)
-        D = recv_broadcasted_array(comm)
-        return rank, n_jobs, params, D
+        return rank, n_jobs, params
 
     def _get_signal_mpi(self, sig_shape, debug):
         comm = MPI.Comm.Get_parent()

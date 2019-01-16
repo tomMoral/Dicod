@@ -46,7 +46,6 @@ def compute_ztz(z, atom_shape, padding_shape=None):
     """
     # TODO: benchmark the cross correlate function of numpy
     n_atoms, *_ = z.shape
-    flip_axis = tuple(range(1, z.ndim))
     ztz_shape = (n_atoms, n_atoms) + tuple([
         2 * size_atom_ax - 1 for size_atom_ax in atom_shape
     ])
@@ -75,9 +74,10 @@ def compute_ztz(z, atom_shape, padding_shape=None):
             ztz[k0] += z[(k0, *pt)] * z_pad[z_pad_slice]
     else:
         # compute the cross correlation between z and z_pad
+        z_pad_reverse = np.flip(z_pad, axis=tuple(range(1, z.ndim)))
         ztz = np.array([[fftconvolve(z_pad_k0, z_k, mode='valid')
                          for z_k in z]
-                        for z_pad_k0 in np.flip(z_pad, axis=flip_axis)])
+                        for z_pad_k0 in z_pad_reverse])
     assert ztz.shape == ztz_shape, (ztz.shape, ztz_shape)
     return ztz
 

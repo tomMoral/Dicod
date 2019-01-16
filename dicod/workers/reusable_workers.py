@@ -10,9 +10,8 @@ import numpy as np
 from mpi4py import MPI
 from multiprocessing import util
 
-
-from .utils import constants
-from .utils import debug_flags as flags
+from ..utils import constants
+from ..utils import debug_flags as flags
 
 # global worker communicator
 _n_workers = None

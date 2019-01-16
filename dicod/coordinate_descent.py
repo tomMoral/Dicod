@@ -178,7 +178,7 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         ztz = compute_ztz(z_hat, atom_shape)
         ztX = compute_ztX(z_hat, X_i)
 
-    return z_hat, ztz, ztX, p_obj
+    return z_hat, ztz, ztX, p_obj, None
 
 
 def _init_beta(X_i, D, reg, z_i=None, constants={}, z_positive=False):
