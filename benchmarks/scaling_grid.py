@@ -14,8 +14,8 @@ from joblib import Memory
 mem = Memory(location='.')
 
 ResultItem = namedtuple('ResultItem', [
-    'n_atoms', 'atom_support', 'reg', 'n_jobs', 'n_seg', 'strategy', 'tol',
-    'dicod_kwargs', 'seed', 'sparsity', 'pobj'])
+    'n_atoms', 'atom_support', 'reg', 'grid', 'tol', 'seed',
+    'sparsity', 'pobj'])
 
 
 def get_problem(n_atoms, atom_support, seed):
@@ -43,47 +43,37 @@ def get_problem(n_atoms, atom_support, seed):
     return X, D
 
 
-@mem.cache(ignore=['timeout', 'max_iter', 'verbose'])
-def run_one(n_atoms, atom_support, reg, n_jobs, strategy, tol, seed,
-            timeout, max_iter, verbose, dicod_kwargs):
+@mem.cache(ignore=['verbose'])
+def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, seed,
+                 verbose):
     # Generate a problem
     X, D = get_problem(n_atoms, atom_support, seed)
-    lmbd = reg * get_lambda_max(X[None], D).max()
+    reg_ = reg * get_lambda_max(X[None], D).max()
 
-    if strategy == 'lgcd':
-        n_seg = 'auto'
-        effective_strategy = 'greedy'
-    elif strategy in ["greedy", 'random']:
-        n_seg = 1
-        effective_strategy = strategy
+    if grid:
+        w_world = 'auto'
     else:
-        raise NotImplementedError(f"Bad strategy name {strategy}")
+        w_world = n_jobs
 
+    dicod_kwargs = dict(z_positive=False, use_soft_lock=True, timeout=None,
+                        max_iter=int(1e7))
     z_hat, *_, pobj, cost = dicod(
-        X, D, reg=lmbd, n_seg=n_seg, strategy=effective_strategy,
-        n_jobs=n_jobs, timing=True, tol=tol, timeout=timeout,
-        max_iter=max_iter, verbose=verbose, **dicod_kwargs)
+        X, D, reg=reg_, n_seg='auto', strategy='greedy', w_world=w_world,
+        n_jobs=n_jobs, timing=True, tol=tol, verbose=verbose, **dicod_kwargs)
 
     sparsity = len(z_hat.nonzero()[0]) / z_hat.size
 
     return ResultItem(n_atoms=n_atoms, atom_support=atom_support, reg=reg,
-                      n_jobs=n_jobs, n_seg=n_seg, strategy=strategy,
-                      tol=tol, dicod_kwargs=dicod_kwargs, seed=seed,
-                      sparsity=sparsity, pobj=pobj)
+                      grid=grid, tol=tol, seed=seed, sparsity=sparsity,
+                      pobj=pobj)
 
 
-def run_scaling_benchmark(max_n_jobs, n_rep=1):
-    tol = 1e-3
+def run_scaling_grid(n_rep=1):
+    tol = 5e-3
     n_atoms = 5
     atom_support = (8, 8)
 
-    verbose = 1
-    timeout = 9000
-    max_iter = int(1e8)
-
-    dicod_kwargs = dict(z_positive=False, use_soft_lock=True)
-
-    reg_list = np.logspace(-3, np.log10(.5), 10)[::-1][:3]
+    reg_list = np.logspace(-3, np.log10(.5), 10)[::-1][2:3]
 
     list_n_jobs = np.round(np.logspace(0, np.log10(20), 10)).astype(int)
     list_n_jobs = [int(v * v) for v in np.unique(list_n_jobs)[::-1]]
@@ -91,15 +81,19 @@ def run_scaling_benchmark(max_n_jobs, n_rep=1):
     results = []
     for reg in reg_list:
         for n_jobs in list_n_jobs:
-            for strategy in ['greedy', 'lgcd']:  # , 'random']:
+            for grid in [True, False]:
                 for seed in range(n_rep):
-                    res = run_one(n_atoms, atom_support, reg, n_jobs, strategy,
-                                  tol, seed, timeout, max_iter, verbose,
-                                  dicod_kwargs)
-                    results.append(res)
+                    try:
+                        res = run_one_grid(
+                            n_atoms, atom_support, reg,
+                            n_jobs, grid, tol, seed, 1)
+                        results.append(res)
+                    except ValueError as e:
+                        print(e)
+                        continue
 
     df = pandas.DataFrame(results)
-    df.to_pickle("benchmarks_results/scaling_n_jobs.pkl")
+    df.to_pickle("benchmarks_results/scaling_grid.pkl")
 
 
 def plot_scaling_benchmark():
@@ -148,6 +142,7 @@ def plot_scaling_benchmark():
     plt.savefig("benchmarks_results/scaling_n_jobs.pdf")
     plt.show()
 
+
 if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser('Benchmark scaling performance for DICOD')
@@ -158,4 +153,4 @@ if __name__ == "__main__":
     if args.plot:
         plot_scaling_benchmark()
     else:
-        run_scaling_benchmark(max_n_jobs=400, n_rep=5)
+        run_scaling_grid(n_rep=5)
