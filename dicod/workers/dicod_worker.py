@@ -35,7 +35,7 @@ class DICODWorker:
     def __init__(self, backend):
         self._backend = backend
 
-    def receive_task(self):
+    def recv_task(self):
         # Retrieve different constants from the base communicator and store
         # then in the class.
         self.rank, self.n_jobs, params = self.get_params()
@@ -104,10 +104,20 @@ class DICODWorker:
             n_seg=n_seg, seg_shape=local_seg_shape, inner_bounds=inner_bounds,
             full_shape=worker_shape)
 
+        # Initialize the solution
+        n_atoms = self.D.shape[0]
+        seg_shape = self.workers_segments.get_seg_shape(self.rank)
+        if self.z0 is None:
+            self.z_hat = np.zeros((n_atoms,) + seg_shape)
+        else:
+            self.z_hat = self.z0
+
         self.info("Start DICOD with {} workers, strategy '{}', soft_lock"
                   "={} and n_seg={}({})", self.n_jobs, self.strategy,
                   self.use_soft_lock, self.n_seg,
                   self.local_segments.effective_n_seg, global_msg=True)
+
+        self.synchronize_workers()
 
     def compute_z_hat(self):
 
@@ -119,19 +129,13 @@ class DICODWorker:
         k0, pt0 = 0, None
         self.n_paused_worker = 0
 
-        # Initialize the solution
-        n_atoms = self.D.shape[0]
-        seg_shape = self.workers_segments.get_seg_shape(self.rank)
+        # compute the number of coordinates
+        n_atoms, *_ = self.D.shape
         seg_in_shape = self.workers_segments.get_seg_shape(
             self.rank, inner=True)
-        if self.z0 is None:
-            self.z_hat = np.zeros((n_atoms,) + seg_shape)
-        else:
-            self.z_hat = self.z0
         n_coordinates = n_atoms * np.prod(seg_in_shape)
 
         self.init_cd_variables()
-        self.synchronize_workers()
 
         diverging = False
         if flags.INTERACTIVE_PROCESSES and self.n_jobs == 1:
@@ -214,7 +218,7 @@ class DICODWorker:
 
             # When workers are diverging, finish the worker to avoid having to
             # wait until max_iter for stopping the algorithm.
-            if abs(dz) >= 1e2:
+            if abs(dz) >= 1e3:
                 self.info("diverging worker")
                 self.wait_status_changed(status=constants.STATUS_FINISHED)
                 diverging = True
@@ -252,10 +256,13 @@ class DICODWorker:
         assert diverging or self.check_no_transitting_message()
         runtime = time.time() - t_start
 
+        comm = MPI.Comm.Get_parent()
+        comm.gather([n_coordinate_updates, runtime], root=0)
+
         return n_coordinate_updates, runtime
 
     def run(self):
-        self.receive_task()
+        self.recv_task()
         n_coordinate_updates, runtime = self.compute_z_hat()
         self.send_result(n_coordinate_updates, runtime)
 
@@ -265,6 +272,7 @@ class DICODWorker:
         self.wait_status_changed(status=constants.STATUS_FINISHED)
 
     def init_cd_variables(self):
+        t_start = time.time()
 
         # Pre-compute some quantities
         constants = {}
@@ -303,9 +311,8 @@ class DICODWorker:
                     slice(v - size_ax + 1, v + size_ax - 1)
                     for v, size_ax in zip(pt, atom_support)
                 ])
-                msg = np.array(self.beta[beta_slice].sum(), dtype='d')
-                comm = MPI.Comm.Get_parent()
-                comm.Send([msg, MPI.DOUBLE], dest=0)
+                sum_beta = np.array(self.beta[beta_slice].sum(), dtype='d')
+                self.return_array(sum_beta)
 
         if self.freeze_support:
             assert self.z0 is not None
@@ -313,6 +320,11 @@ class DICODWorker:
             self.dz_opt[self.freezed_support] = 0
         else:
             self.freezed_support = None
+
+        self.synchronize_workers()
+        t_local_init = time.time() - t_start
+        self.info("End local initialization in {:.2f}s", t_local_init,
+                  global_msg=True)
 
     def coordinate_update(self, k0, pt0, dz, coordinate_exist=True):
         self.beta, self.dz_opt = coordinate_update(
@@ -526,9 +538,9 @@ class DICODWorker:
     def compute_cost(self):
         X_hat_worker = reconstruct(self.z_hat, self.D)
         inner_bounds = self.local_segments.inner_bounds
-        inner_slice = [Ellipsis] + [
-            slice(start_ax, end_ax) for start_ax, end_ax in inner_bounds]
-        X_hat_slice = inner_slice.copy()
+        inner_slice = tuple([Ellipsis] + [
+            slice(start_ax, end_ax) for start_ax, end_ax in inner_bounds])
+        X_hat_slice = list(inner_slice)
         i_seg = self.rank
         ax_rank_offset = self.workers_segments.effective_n_seg
         for ax, n_seg_ax in enumerate(self.workers_segments.n_seg_per_axis):
@@ -538,10 +550,40 @@ class DICODWorker:
             if (ax_i_seg + 1) % n_seg_ax == 0:
                 s = inner_slice[ax + 1]
                 X_hat_slice[ax + 1] = slice(s.start, None)
-        inner_slice, X_hat_slice = tuple(inner_slice), tuple(X_hat_slice)
+        X_hat_slice = tuple(X_hat_slice)
         diff = (X_hat_worker[X_hat_slice] - self.X_worker[X_hat_slice]).ravel()
         cost = .5 * np.dot(diff, diff)
         return cost + self.reg * abs(self.z_hat[inner_slice]).sum()
+
+    def return_z_hat(self):
+        if flags.GET_OVERLAP_Z_HAT:
+            res_slice = (Ellipsis,)
+        else:
+            res_slice = (Ellipsis,) + tuple([
+                slice(start, end)
+                for start, end in self.local_segments.inner_bounds
+            ])
+        z_worker = self.z_hat[res_slice].ravel()
+        self.return_array(z_worker)
+
+    def return_z_nnz(self):
+        res_slice = (Ellipsis,) + tuple([
+            slice(start, end)
+            for start, end in self.local_segments.inner_bounds
+        ])
+        z_nnz = self.z_hat[res_slice] != 0
+        z_nnz = np.sum(z_nnz, axis=tuple(range(1, z_nnz.ndim)))
+        self.reduce_sum_array(z_nnz)
+
+    def return_sufficient_statistics(self):
+        ztz, ztX = self.compute_sufficient_statistics()
+        self.reduce_sum_array(ztz)
+        self.reduce_sum_array(ztX)
+
+    def return_cost(self):
+        cost = self.compute_cost()
+        cost = np.array(cost, dtype='d')
+        self.reduce_sum_array(cost)
 
     ###########################################################################
     #     Display utilities
@@ -557,31 +599,32 @@ class DICODWorker:
                   ii / max_ii, unit, level=1, level_name="PROGRESS",
                   global_msg=True, endline=False)
 
-    def info(self, msg, *args, global_msg=False):
-        self._log(msg, *args, level=1, level_name="INFO",
-                  global_msg=global_msg)
+    def info(self, msg, *fmt_args, global_msg=False, **fmt_kwargs):
+        self._log(msg, *fmt_args, level=1, level_name="INFO",
+                  global_msg=global_msg, **fmt_kwargs)
 
-    def debug(self, msg, *args, global_msg=False):
-        self._log(msg, *args, level=5, level_name="DEBUG",
-                  global_msg=global_msg)
+    def debug(self, msg, *fmt_args, global_msg=False, **fmt_kwargs):
+        self._log(msg, *fmt_args, level=5, level_name="DEBUG",
+                  global_msg=global_msg, **fmt_kwargs)
 
     def _log(self, msg, *fmt_args, level=0, level_name="None",
-             global_msg=False, endline=True):
+             global_msg=False, endline=True, **fmt_kwargs):
         if self.verbose >= level:
             if global_msg:
                 if self.rank != 0:
                     return
-                msg_fmt = constants.GLOBAL_OUTPUT_TAG_DICOD + msg
+                msg_fmt = constants.GLOBAL_OUTPUT_TAG + msg
                 identity = self.n_jobs
             else:
-                msg_fmt = constants.WORKER_OUTPUT_TAG_DICOD + msg
+                msg_fmt = constants.WORKER_OUTPUT_TAG + msg
                 identity = self.rank
             if endline:
                 kwargs = {}
             else:
                 kwargs = {'end': '', 'flush': True}
             msg_fmt = msg_fmt.ljust(80)
-            print(msg_fmt.format(identity, level_name, *fmt_args), **kwargs)
+            print(msg_fmt.format(identity, level_name, *fmt_args,
+                                 **fmt_kwargs,), **kwargs)
 
     ###########################################################################
     #     Communication primitives
@@ -630,7 +673,22 @@ class DICODWorker:
         """Receive a dictionary D"""
         if self._backend == "mpi":
             comm = MPI.Comm.Get_parent()
-            return recv_broadcasted_array(comm)
+            self.D = recv_broadcasted_array(comm)
+            return self.D
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
+
+    def return_array(self, sig):
+        if self._backend == "mpi":
+            self._return_array_mpi(sig)
+        else:
+            raise NotImplementedError("Backend {} is not implemented"
+                                      .format(self._backend))
+
+    def reduce_sum_array(self, arr):
+        if self._backend == "mpi":
+            self._reduce_sum_array_mpi(arr)
         else:
             raise NotImplementedError("Backend {} is not implemented"
                                       .format(self._backend))
@@ -676,13 +734,11 @@ class DICODWorker:
 
         sig_worker = np.empty(sig_shape, dtype='d')
         comm.Recv([sig_worker.ravel(), MPI.DOUBLE], source=0,
-                  tag=constants.TAG_DICOD_ROOT + rank)
+                  tag=constants.TAG_ROOT + rank)
 
         if debug:
-
             X_alpha = 0.25 * np.ones(sig_shape)
-            comm.Send([X_alpha.ravel(), MPI.DOUBLE], dest=0,
-                      tag=constants.TAG_DICOD_ROOT + rank)
+            self.return_array(X_alpha)
 
         return sig_worker
 
@@ -695,33 +751,29 @@ class DICODWorker:
     def _send_result_mpi(self, iterations, runtime):
         comm = MPI.Comm.Get_parent()
         self.info("Reducing the distributed results", global_msg=True)
-        _, _, *atom_support = self.D.shape
 
-        if flags.GET_OVERLAP_Z_HAT:
-            res_slice = (Ellipsis,)
-        else:
-            res_slice = (Ellipsis,) + tuple([
-                slice(start, end)
-                for start, end in self.local_segments.inner_bounds
-            ])
-
-        z_worker = self.z_hat[res_slice].ravel()
-        comm.Send([z_worker, MPI.DOUBLE], dest=0,
-                  tag=constants.TAG_DICOD_ROOT + self.rank)
+        self.return_z_hat()
 
         if self.return_ztz:
-            ztz, ztX = self.compute_sufficient_statistics()
-            comm.Reduce([ztz, MPI.DOUBLE], None, op=MPI.SUM, root=0)
-            comm.Reduce([ztX, MPI.DOUBLE], None, op=MPI.SUM, root=0)
+            self.return_sufficient_statistics()
 
-        cost = self.compute_cost()
-        comm.reduce(cost, op=MPI.SUM, root=0)
+        self.return_cost()
 
         if self.timing:
             comm.send(self._log_updates, dest=0)
 
-        comm.gather([iterations, runtime], root=0)
         comm.Barrier()
+
+    def _return_array_mpi(self, arr):
+        comm = MPI.Comm.Get_parent()
+        arr.astype('d')
+        comm.Send([arr, MPI.DOUBLE], dest=0,
+                  tag=constants.TAG_ROOT + self.rank)
+
+    def _reduce_sum_array_mpi(self, arr):
+        comm = MPI.Comm.Get_parent()
+        arr = np.array(arr, dtype='d')
+        comm.Reduce([arr, MPI.DOUBLE], None, op=MPI.SUM, root=0)
 
     def _shutdown_mpi(self):
         comm = MPI.Comm.Get_parent()

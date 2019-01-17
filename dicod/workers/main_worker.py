@@ -4,7 +4,8 @@ Author : tommoral <thomas.moreau@inria.fr>
 """
 from dicod.utils import constants
 from dicod.workers.dicod_worker import DICODWorker
-from dicod.utils.mpi import wait_message, sync_workers, shutdown_mpi
+from dicod.workers.dicodil_worker import dicodil_worker
+from dicod.utils.mpi import wait_message, sync_workers
 
 
 def main():
@@ -14,9 +15,9 @@ def main():
         if tag == constants.TAG_WORKER_RUN_DICOD:
             dicod = DICODWorker(backend='mpi')
             dicod.run()
+        if tag == constants.TAG_WORKER_RUN_DICODIL:
+            dicodil_worker()
         tag = wait_message()
-
-    shutdown_mpi()
 
 
 if __name__ == "__main__":

@@ -39,7 +39,7 @@ def get_reusable_workers(n_jobs=4, hostfile=None):
     return _worker_comm
 
 
-def send_command_to_reusable_workers(tag):
+def send_command_to_reusable_workers(tag, verbose=0):
     global _worker_comm, _n_workers
 
     t_start = time.time()
@@ -53,7 +53,8 @@ def send_command_to_reusable_workers(tag):
         if requests[0].Test():
             requests.pop(0)
         time.sleep(.001)
-    print("Sent message in {:.3f}s".format(time.time() - t_start))
+    if verbose > 5:
+        print("Sent message {} in {:.3f}s".format(tag, time.time() - t_start))
 
 
 def shutdown_reusable_workers():

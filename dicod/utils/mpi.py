@@ -6,6 +6,8 @@ import time
 import numpy as np
 from mpi4py import MPI
 
+from . import constants
+
 
 def broadcast_array(comm, arr):
     arr_shape = np.array(arr.shape, dtype='i')
@@ -30,6 +32,12 @@ def recv_broadcasted_array(comm):
     return arr.reshape(arr_shape)
 
 
+def recv_reduce_sum_array(comm, shape):
+    arr = np.zeros(shape, dtype='d')
+    comm.Reduce(None, [arr, MPI.DOUBLE], op=MPI.SUM, root=MPI.ROOT)
+    return arr
+
+
 def wait_message():
     comm = MPI.Comm.Get_parent()
     mpi_status = MPI.Status()
@@ -43,6 +51,10 @@ def wait_message():
     comm.Recv([msg, MPI.INT], source=src, tag=tag)
 
     assert tag == msg[0], "tag and msg should be equal"
+
+    if tag == constants.TAG_WORKER_STOP:
+        shutdown_mpi()
+        raise SystemExit(0)
 
     return tag
 

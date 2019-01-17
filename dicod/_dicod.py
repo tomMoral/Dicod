@@ -3,17 +3,17 @@
 Author : tommoral <thomas.moreau@inria.fr>
 """
 
+import time
 import logging
 import numpy as np
-from time import time
 from mpi4py import MPI
 
 from .utils import constants
-from .utils.mpi import broadcast_array
 from .utils import debug_flags as flags
 from .utils.csc import compute_objective
 from .utils.segmentation import Segmentation
 from .coordinate_descent import coordinate_descent
+from .utils.mpi import broadcast_array, recv_reduce_sum_array
 
 from .workers.reusable_workers import get_reusable_workers
 from .workers.reusable_workers import send_command_to_reusable_workers
@@ -129,8 +129,16 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
 
     comm = _spawn_workers(n_jobs, hostfile)
     t_init = _send_task(comm, X_i, D, reg, z0, workers_segments, params)
+    t_init_local = _wait_local_init_end(comm, workers_segments)
 
+    if verbose > 0:
+        print('\r[DICOD-{}:INFO] End initialization - {:.4}s ({:.2}s)'
+              .format(workers_segments.effective_n_seg, t_init_local,
+                      t_init + t_init_local).ljust(80))
+
+    # Wait for the result computation
     comm.Barrier()
+    _collect_end_stat(comm, n_jobs, verbose=verbose)
 
     z_hat, ztz, ztX, cost, _log, t_reduce = _recv_result(
         comm, D.shape, valid_shape, workers_segments, return_ztz=return_ztz,
@@ -212,7 +220,7 @@ def _spawn_workers(n_jobs, hostfile):
 
 
 def _send_task(comm, X, D, reg, z0, workers_segments, params):
-    t_start = time()
+    t_start = time.time()
     n_jobs = workers_segments.effective_n_seg
     n_atoms, n_channels, *atom_shape = D.shape
 
@@ -251,76 +259,99 @@ def _send_task(comm, X, D, reg, z0, workers_segments, params):
                 (workers_segments.n_seg_per_axis[0] - 1)
                 )
 
+    comm.Barrier()
+    t_init = time.time() - t_start
+    return t_init
+
+
+def _wait_local_init_end(comm, workers_segments):
+    t_start = time.time()
     if flags.CHECK_WARM_BETA:
         pt_global = workers_segments.get_seg_shape(0, inner=True)
-        msg = np.empty(1, 'd')
+        sum_beta = np.empty(1, 'd')
         value = []
-        for i_worker in range(n_jobs):
+        for i_worker in range(workers_segments.effective_n_seg):
 
             pt = workers_segments.get_local_coordinate(i_worker, pt_global)
             if workers_segments.is_contained_coordinate(i_worker, pt):
-                comm.Recv([msg, MPI.DOUBLE], source=i_worker)
-                value.append(msg[0])
+                comm.Recv([sum_beta, MPI.DOUBLE], source=i_worker)
+                value.append(sum_beta[0])
         if len(value) > 1:
             assert np.allclose(value[1:], value[0]), value
 
     comm.Barrier()
 
-    t_init = time() - t_start
-    if params['verbose'] > 0:
-        print('\r[DICOD-{}:INFO] End initialization - {:.4}s'.ljust(80)
-              .format(workers_segments.effective_n_seg, t_init))
-    return t_init
+    t_init_local = time.time() - t_start
+    return t_init_local
+
+
+def _collect_end_stat(comm, n_jobs, verbose=0):
+    stats = comm.gather(None, root=MPI.ROOT)
+    n_coordinate_updates = np.sum(stats, axis=0)[0]
+    runtime = np.max(stats, axis=0)[1]
+    if verbose > 0:
+        print("\r[DICOD-{}:INFO] converged in {:.3f}s with {:.0f} coordinate "
+              "updates.".format(n_jobs, runtime,
+                                n_coordinate_updates))
 
 
 def _recv_result(comm, D_shape, valid_shape, workers_segments,
                  return_ztz=False, timing=False, verbose=0):
-    n_atoms, n_channels, *atom_shape = D_shape
+    n_atoms, n_channels, *atom_support = D_shape
 
-    t_start = time()
+    t_start = time.time()
 
-    inner = not flags.GET_OVERLAP_Z_HAT
-
-    z_hat = np.empty((n_atoms,) + valid_shape, dtype='d')
-    for i_seg in range(workers_segments.effective_n_seg):
-        worker_shape = workers_segments.get_seg_shape(
-            i_seg, inner=inner)
-        worker_slice = workers_segments.get_seg_slice(
-            i_seg, inner=inner)
-        z_worker = np.zeros((n_atoms,) + worker_shape, 'd')
-        comm.Recv([z_worker.ravel(), MPI.DOUBLE], source=i_seg,
-                  tag=constants.TAG_ROOT + i_seg)
-        z_hat[worker_slice] = z_worker
+    z_hat = recv_z_hat(comm, n_atoms=n_atoms,
+                       workers_segments=workers_segments)
 
     if return_ztz:
-        ztz_shape = tuple([2 * size_atom_ax - 1
-                          for size_atom_ax in atom_shape])
-        ztz = np.zeros((n_atoms, n_atoms, *ztz_shape), dtype='d')
-        comm.Reduce(None, [ztz, MPI.DOUBLE], op=MPI.SUM, root=MPI.ROOT)
-
-        ztX = np.zeros((n_atoms, n_channels) + tuple(atom_shape), dtype='d')
-        comm.Reduce(None, [ztX, MPI.DOUBLE], op=MPI.SUM, root=MPI.ROOT)
+        ztz, ztX = recv_sufficient_statistics(comm, D_shape)
     else:
         ztz, ztX = None, None
 
-    cost = comm.reduce(None, op=MPI.SUM, root=MPI.ROOT)
+    cost = recv_cost(comm)
 
     _log = []
     if timing:
         for i_seg in range(workers_segments.effective_n_seg):
             _log.extend(comm.recv(source=i_seg))
 
-    stats = comm.gather(None, root=MPI.ROOT)
-    n_coordinate_updates = np.sum(stats, axis=0)[0]
-    runtime = np.max(stats, axis=0)[1]
-    if verbose > 0:
-        print("\r[DICOD-{}:INFO] converged in {:.3f}s with {:.0f} coordinate "
-              "updates.".format(workers_segments.effective_n_seg, runtime,
-                                n_coordinate_updates))
-
-    t_reduce = time() - t_start
+    t_reduce = time.time() - t_start
     if verbose >= 5:
         print('\r[DICOD-{}:DEBUG] End finalization - {:.4}s'
               .format(workers_segments.effective_n_seg, t_reduce))
 
     return z_hat, ztz, ztX, cost, _log, t_reduce
+
+
+def recv_z_hat(comm, n_atoms, workers_segments):
+
+    valid_shape = workers_segments.signal_shape
+
+    inner = not flags.GET_OVERLAP_Z_HAT
+    z_hat = np.empty((n_atoms, *valid_shape), dtype='d')
+    for i_seg in range(workers_segments.effective_n_seg):
+        worker_shape = workers_segments.get_seg_shape(
+            i_seg, inner=inner)
+        z_worker = np.zeros((n_atoms,) + worker_shape, 'd')
+        comm.Recv([z_worker.ravel(), MPI.DOUBLE], source=i_seg,
+                  tag=constants.TAG_ROOT + i_seg)
+        worker_slice = workers_segments.get_seg_slice(
+            i_seg, inner=inner)
+        z_hat[worker_slice] = z_worker
+
+    return z_hat
+
+
+def recv_sufficient_statistics(comm, D_shape):
+    n_atoms, n_channels, *atom_support = D_shape
+    ztz_shape = tuple([2 * size_atom_ax - 1
+                       for size_atom_ax in atom_support])
+    ztz = recv_reduce_sum_array(comm, (n_atoms, n_atoms, *ztz_shape))
+    ztX = recv_reduce_sum_array(comm, (n_atoms, n_channels, *atom_support))
+    return ztz, ztX
+
+
+def recv_cost(comm):
+    cost = recv_reduce_sum_array(comm, 1)
+    return cost[0]
