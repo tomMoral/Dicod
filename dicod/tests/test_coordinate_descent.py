@@ -21,7 +21,7 @@ def test_init_beta():
     z = rng.randn(n_atoms, height_valid, width_valid)
 
     lmbd = 1
-    beta, dz_opt = _init_beta(X, D, lmbd, z_i=z)
+    beta, dz_opt, dE = _init_beta(X, D, lmbd, z_i=z)
 
     assert beta.shape == z.shape
     assert dz_opt.shape == z.shape
@@ -34,7 +34,7 @@ def test_init_beta():
         # Check that the optimal value is independent of the current value
         z_old = z[k, h, w]
         z[k, h, w] = rng.randn()
-        beta_new, _ = _init_beta(X, D, lmbd, z_i=z)
+        beta_new, *_ = _init_beta(X, D, lmbd, z_i=z)
         assert np.isclose(beta_new[k, h, w], beta[k, h, w])
 
         # Check that the chosen value is optimal

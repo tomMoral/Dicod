@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 from collections import namedtuple
 
 from dicod import dicod
+from dicod.data import get_mandril
 from dicod.utils import check_random_state
 from dicod.utils.shape_helpers import get_valid_shape
 
@@ -14,16 +15,13 @@ from joblib import Memory
 mem = Memory(location='.')
 
 ResultItem = namedtuple('ResultItem', [
-    'n_atoms', 'atom_support', 'reg', 'grid', 'tol', 'seed',
+    'n_atoms', 'atom_support', 'reg', 'n_jobs', 'grid', 'tol', 'seed',
     'sparsity', 'pobj'])
 
 
 def get_problem(n_atoms, atom_support, seed):
-    data_dir = os.environ.get("DATA_DIR", "../../data")
-    mandril = os.path.join(data_dir, "images/standard_images/mandril_color.tif")
 
-    X = plt.imread(mandril) / 255
-    X = X.swapaxes(0, 2)
+    X = get_mandril()
 
     rng = check_random_state(seed)
 
@@ -56,7 +54,7 @@ def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, seed,
         w_world = n_jobs
 
     dicod_kwargs = dict(z_positive=False, use_soft_lock=True, timeout=None,
-                        max_iter=int(1e7))
+                        max_iter=int(1e8))
     z_hat, *_, pobj, cost = dicod(
         X, D, reg=reg_, n_seg='auto', strategy='greedy', w_world=w_world,
         n_jobs=n_jobs, timing=True, tol=tol, verbose=verbose, **dicod_kwargs)
@@ -64,8 +62,8 @@ def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, seed,
     sparsity = len(z_hat.nonzero()[0]) / z_hat.size
 
     return ResultItem(n_atoms=n_atoms, atom_support=atom_support, reg=reg,
-                      grid=grid, tol=tol, seed=seed, sparsity=sparsity,
-                      pobj=pobj)
+                      n_jobs=n_jobs, grid=grid, tol=tol, seed=seed,
+                      sparsity=sparsity, pobj=pobj)
 
 
 def run_scaling_grid(n_rep=1):
@@ -74,19 +72,19 @@ def run_scaling_grid(n_rep=1):
     atom_support = (8, 8)
 
     reg_list = np.logspace(-3, np.log10(.5), 10)[::-1][2:3]
-
-    list_n_jobs = np.round(np.logspace(0, np.log10(20), 10)).astype(int)
-    list_n_jobs = [int(v * v) for v in np.unique(list_n_jobs)[::-1]]
+    list_n_jobs = [1, 4, 9, 16, 25, 30, 49, 64, 100, 225]
 
     results = []
     for reg in reg_list:
-        for n_jobs in list_n_jobs:
-            for grid in [True, False]:
+        for grid in [True, False]:
+            for n_jobs in list_n_jobs:
+                if grid and n_jobs == 30:
+                    n_jobs = 36
                 for seed in range(n_rep):
                     try:
-                        res = run_one_grid(
-                            n_atoms, atom_support, reg,
-                            n_jobs, grid, tol, seed, 1)
+                        args = (n_atoms, atom_support, reg,
+                                n_jobs, grid, tol, seed, 1)
+                        res = run_one_grid(*args)
                         results.append(res)
                     except ValueError as e:
                         print(e)
@@ -97,49 +95,34 @@ def run_scaling_grid(n_rep=1):
 
 
 def plot_scaling_benchmark():
-    df = pandas.read_pickle("benchmarks_results/scaling_n_jobs.pkl")
-    import matplotlib.lines as mlines
-    handles = {}
+    df = pandas.read_pickle("benchmarks_results/scaling_grid.pkl")
 
-    colors = ['C0', 'C1', 'C2']
-    n_jobs = df['n_jobs'].unique()
-    regs = df['reg'].unique()
-    for reg, c in zip(regs, colors):
-        for strategy, style in [('Greedy', '--'), ('LGCD', '-')]:
-            s = strategy.lower()
-            this_res = df[(df['reg'] == reg) & (df['strategy'] == s)]
-            runtimes = []
-            runtime_std = []
-            for n in n_jobs:
-                pobj = this_res[this_res['n_jobs'] == n]['pobj'].values
-                end_times = [rt[-1][1] for rt in pobj if rt is not None]
-                runtimes.append(np.mean(end_times))
-                runtime_std.append(np.std(end_times))
-            runtimes, runtime_std = np.array(runtimes), np.array(runtime_std)
+    fig = plt.figure(figsize=(6, 3))
+    for name, use_grid in [("Linear Split", False),
+                           ("Grid Split", True)]:
+        curve = []
+        res = df[df['grid'] == use_grid]
+        n_jobs = res['n_jobs'].unique()
+        for n in n_jobs:
+            this_res = res[res['n_jobs'] == n]
+            runtimes = [p[-1][1] for p in this_res['pobj']]
+            curve.append((n, np.mean(runtimes)))
+        curve = np.array(curve).T
+        plt.semilogx(curve[0], curve[1], label=name)
 
-            plt.loglog(n_jobs, runtimes, label=f"{strategy}_{reg:.2f}",
-                       linestyle=style, c=c)
-            plt.fill_between(n_jobs, runtimes - runtime_std,
-                             runtimes + runtime_std, alpha=.1)
-            color_handle = mlines.Line2D(
-                [], [], linestyle='-', c=c, label=f"$\lambda = {reg:.2f}$")
-            style_handle = mlines.Line2D(
-                [], [], linestyle=style, c='k', label=f"{strategy}")
-            handles[strategy] = style_handle
-            handles[str(reg)] = color_handle
-    plt.xlim((1, 400))
-    plt.xticks(n_jobs, n_jobs, fontsize=14)
-    plt.yticks(fontsize=14)
-    plt.minorticks_off()
-    plt.xlabel("# cores $M$", fontsize=18)
-    plt.ylabel("Runtime [sec]", fontsize=18)
-
-    keys = list(handles.keys())
-    keys.sort()
-    handles = [handles[k] for k in keys]
-    plt.legend(handles=handles, ncol=2, fontsize=16)
+    ylim = (0, 250)
+    plt.vlines(21.3, *ylim, colors='g', linestyles='-.')
+    plt.ylim(ylim)
+    plt.legend(fontsize=14)
+    # plt.xticks(n_jobs, n_jobs)
+    plt.grid(which='both')
+    plt.xlim((1, 225))
+    plt.ylabel("Runtime [sec]", fontsize=12)
+    plt.xlabel("# workers $W$", fontsize=12)
     plt.tight_layout()
-    plt.savefig("benchmarks_results/scaling_n_jobs.pdf")
+
+    fig.savefig("benchmarks_results/scaling_grid.pdf", dpi=300,
+                bbox_inches='tight', pad_inches=0)
     plt.show()
 
 

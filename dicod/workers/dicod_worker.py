@@ -153,10 +153,15 @@ class DICODWorker:
             self.process_messages()
 
             # Increment the segment and select the coordinate to update
-            i_seg = self.local_segments.increment_seg(i_seg)
+            try:
+                i_seg = self.local_segments.increment_seg(i_seg)
+            except ZeroDivisionError:
+                print(self.local_segments.signal_shape,
+                      self.local_segments.n_seg_per_axis)
+                raise
             if self.local_segments.is_active_segment(i_seg):
                 k0, pt0, dz = _select_coordinate(
-                    self.dz_opt, self.local_segments, i_seg,
+                    self.dz_opt, self.dE, self.local_segments, i_seg,
                     strategy=self.strategy, random_state=random_state)
 
                 assert self.workers_segments.is_contained_coordinate(
@@ -290,9 +295,10 @@ class DICODWorker:
         self._last_progress = 0
 
         # Initialization of the auxillary variable for LGCD
-        self.beta, self.dz_opt = _init_beta(
+        return_dE = self.strategy == "gs-q"
+        self.beta, self.dz_opt, self.dE = _init_beta(
             self.X_worker, self.D, self.reg, z_i=self.z0, constants=constants,
-            z_positive=self.z_positive)
+            z_positive=self.z_positive, return_dE=return_dE)
 
         # Make sure all segments are activated
         self.local_segments.reset()
@@ -327,10 +333,10 @@ class DICODWorker:
                   global_msg=True)
 
     def coordinate_update(self, k0, pt0, dz, coordinate_exist=True):
-        self.beta, self.dz_opt = coordinate_update(
-            k0, pt0, dz, self.beta, self.dz_opt, self.z_hat, self.D,
-            self.reg, self.constants, self.z_positive,
-            freezed_support=self.freezed_support,
+        self.beta, self.dz_opt, self.dE = coordinate_update(
+            k0, pt0, dz, beta=self.beta, dz_opt=self.dz_opt, dE=self.dE,
+            z_hat=self.z_hat, D=self.D, reg=self.reg, constants=self.constants,
+            z_positive=self.z_positive, freezed_support=self.freezed_support,
             coordinate_exist=coordinate_exist)
 
         # Re-activate the segments where beta have been updated to ensure
@@ -388,11 +394,12 @@ class DICODWorker:
         self.coordinate_update(k0, pt0, dz, coordinate_exist=coordinate_exist)
 
         if flags.CHECK_BETA and np.random.rand() > 0.99:
+            # Only check beta 1% of the time to avoid the check being too long
             inner_slice = (Ellipsis,) + tuple([
                 slice(start, end)
                 for start, end in self.local_segments.inner_bounds
             ])
-            beta, dz_opt = _init_beta(
+            beta, *_ = _init_beta(
                 self.X_worker, self.D, self.reg, z_i=self.z_hat,
                 constants=self.constants, z_positive=self.z_positive)
             assert np.allclose(beta[inner_slice], self.beta[inner_slice])

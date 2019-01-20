@@ -38,10 +38,13 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         segments of twice the size of the dictionary.
     tol : float
         Tolerance for the minimal update size in this algorithm.
-    strategy : str in { 'greedy' | 'random' }
+    strategy : str in { 'greedy' | 'random' | 'gs-r' | 'gs-q' }
         Coordinate selection scheme for the coordinate descent. If set to
-        'greedy', the coordinate with the largest value for dz_opt is selected.
-        If set to 'random, the coordinate is chosen uniformly on the segment.
+        'greedy'|'gs-r', the coordinate with the largest value for dz_opt is
+        selected. If set to 'random, the coordinate is chosen uniformly on the
+        segment. If set to 'gs-q', the value that reduce the most the cost
+        function is selected. In this case, dE must holds the value of this
+        cost reduction.
     max_iter : int
         Maximal number of iteration run by this algorithm.
     z_positive : boolean
@@ -91,8 +94,11 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
 
     t_update = 0
     t_start_update = time.time()
-    beta, dz_opt = _init_beta(X_i, D, reg, z_i=z0, constants=constants,
-                              z_positive=z_positive)
+    return_dE = strategy == "gs-q"
+    beta, dz_opt, dE = _init_beta(X_i, D, reg, z_i=z0, constants=constants,
+                                  z_positive=z_positive, return_dE=return_dE)
+    if strategy == "gs-q":
+        raise NotImplementedError("This is still WIP")
 
     if freeze_support:
         freezed_support = z0 == 0
@@ -113,7 +119,7 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
 
         i_seg = segments.increment_seg(i_seg)
         if segments.is_active_segment(i_seg):
-            k0, pt0, dz = _select_coordinate(dz_opt, segments, i_seg,
+            k0, pt0, dz = _select_coordinate(dz_opt, dE, segments, i_seg,
                                              strategy=strategy,
                                              random_state=random_state)
         else:
@@ -127,9 +133,10 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
             n_coordinate_updates += 1
 
             # update beta
-            beta, dz_opt = coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat,
-                                             D, reg, constants, z_positive,
-                                             freezed_support=freezed_support)
+            beta, dz_opt, dE = coordinate_update(
+                k0, pt0, dz, beta=beta, dz_opt=dz_opt, dE=dE, z_hat=z_hat, D=D,
+                reg=reg, constants=constants, z_positive=z_positive,
+                freezed_support=freezed_support)
             touched_segs = segments.get_touched_segments(
                 pt=pt0, radius=atom_shape)
             n_changed_status = segments.set_active_segments(touched_segs)
@@ -144,7 +151,7 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
                                   compute_objective(X_i, z_hat, D, reg)))
                     next_cost = next_cost * 2
                 t_start_update = time.time()
-        elif strategy == "greedy":
+        elif strategy in ["greedy", 'gs-r']:
             segments.set_inactive_segments(i_seg)
 
         # check stopping criterion
@@ -181,7 +188,8 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     return z_hat, ztz, ztX, p_obj, None
 
 
-def _init_beta(X_i, D, reg, z_i=None, constants={}, z_positive=False):
+def _init_beta(X_i, D, reg, z_i=None, constants={}, z_positive=False,
+               return_dE=False):
     """Init beta with the gradient in the current point 0
 
     Parameters
@@ -198,6 +206,9 @@ def _init_beta(X_i, D, reg, z_i=None, constants={}, z_positive=False):
         Pre-computed constants for the computations
     z_positive : boolean
         If set to true, the activations are constrained to be positive.
+    return_dE : boolean
+        If set to true, return a vector holding the value of cost update when
+        updating coordinate i to value dz_opt[i].
     """
     if 'norm_atoms' in constants:
         norm_atoms = constants['norm_atoms']
@@ -226,10 +237,15 @@ def _init_beta(X_i, D, reg, z_i=None, constants={}, z_positive=False):
     if z_i is not None:
         dz_opt -= z_i
 
-    return beta, dz_opt
+    if return_dE:
+        dE = compute_dE(dz_opt, beta, z_i, reg)
+    else:
+        dE = None
+
+    return beta, dz_opt, dE
 
 
-def _select_coordinate(dz_opt, segments, i_seg, strategy='greedy',
+def _select_coordinate(dz_opt, dE, segments, i_seg, strategy='greedy',
                        random_state=None):
     """Pick a coordinate to update
 
@@ -238,12 +254,21 @@ def _select_coordinate(dz_opt, segments, i_seg, strategy='greedy',
     dz_opt : ndarray, shape (n_atoms, *valid_shape)
         Difference between the current value and the optimal value for each
         coordinate.
+    dE : ndarray, shape (n_atoms, *valid_shape) or None
+        Value of the reduction of the cost when moving a given coordinate to
+        the optimal value dz_opt. This is only necessary when strategy is
+        'gs-q'.
     segments : dicod.utils.Segmentation
         Segmentation info for LGCD
-    strategy : str in { 'greedy' | 'random' }
+    i_seg : int
+        Current segment indices in the Segmentation object.
+    strategy : str in { 'greedy' | 'random' | 'gs-r' | 'gs-q' }
         Coordinate selection scheme for the coordinate descent. If set to
-        'greedy', the coordinate with the largest value for dz_opt is selected.
-        If set to 'random, the coordinate is chosen uniformly on the segment.
+        'greedy'|'gs-r', the coordinate with the largest value for dz_opt is
+        selected. If set to 'random, the coordinate is chosen uniformly on the
+        segment. If set to 'gs-q', the value that reduce the most the cost
+        function is selected. In this case, dE must holds the value of this
+        cost reduction.
     random_state : None or int or RandomState
         current random state to seed the random number generator.
     """
@@ -256,23 +281,31 @@ def _select_coordinate(dz_opt, segments, i_seg, strategy='greedy',
         for start, end in inner_bounds:
             v0 = rng.randint(start, end)
             pt0 = pt0 + (v0,)
-        dz = dz_opt[k0][pt0]
 
-    elif strategy == 'greedy':
+    elif strategy in ['greedy', 'gs-r']:
         seg_slice = segments.get_seg_slice(i_seg, inner=True)
         dz_opt_seg = dz_opt[seg_slice]
         i0 = abs(dz_opt_seg).argmax()
         k0, *pt0 = np.unravel_index(i0, dz_opt_seg.shape)
         pt0 = segments.get_global_coordinate(i_seg, pt0)
-        dz = dz_opt[k0][pt0]
+
+    elif strategy == 'gs-q':
+        seg_slice = segments.get_seg_slice(i_seg, inner=True)
+        dE_seg = dE[seg_slice]
+        i0 = abs(dE_seg).argmax()
+        k0, *pt0 = np.unravel_index(i0, dE_seg.shape)
+        pt0 = segments.get_global_coordinate(i_seg, pt0)
     else:
         raise ValueError("'The coordinate selection strategy should be in "
                          "{'greedy' | 'random' | 'cyclic'}. Got '{}'."
                          .format(strategy))
+
+    # Get the coordinate update value
+    dz = dz_opt[(k0, *pt0)]
     return k0, pt0, dz
 
 
-def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
+def coordinate_update(k0, pt0, dz, beta, dz_opt, dE, z_hat, D, reg, constants,
                       z_positive, freezed_support=None, coordinate_exist=True):
     """Update the optimal value for the coordinate updates.
 
@@ -284,6 +317,9 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
         Value of the update.
     beta, dz_opt : ndarray, shape (n_atoms, *valid_shape)
         Auxillary variables holding the optimal value for the coordinate update
+    dE : ndarray, shape (n_atoms, *valid_shape) or None
+        If not None, dE[i] contains the change in cost value when the
+        coordinate i is updated to value dz_opt[i].
     z_hat : ndarray, shape (n_atoms, *valid_shape)
         Value of the coordinate.
     D : ndarray, shape (n_atoms, n_channels, *atom_shape)
@@ -299,6 +335,7 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
     coordinate_exist : boolean
         If set to true, the coordinate is located in the updated part of beta.
         This option is only useful for DICOD.
+
 
     Return
     ------
@@ -327,7 +364,7 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
         end_DtD_ax = start_DtD_ax + (end_up_ax - start_up_ax)
         DtD_slice = DtD_slice + (slice(start_DtD_ax, end_DtD_ax),)
 
-    # update beta
+    # update the coordinate and beta
     if coordinate_exist:
         z_hat[k0][pt0] += dz
         beta_i0 = beta[k0][pt0]
@@ -346,7 +383,23 @@ def coordinate_update(k0, pt0, dz, beta, dz_opt, z_hat, D, reg, constants,
         beta[k0][pt0] = beta_i0
         dz_opt[k0][pt0] = 0
 
-    return beta, dz_opt
+    # Update dE is needed
+    if dE is not None:
+        dE[update_slice] = compute_dE(dz_opt[update_slice], beta[update_slice],
+                                      z_hat[update_slice], reg)
+
+    return beta, dz_opt, dE
+
+
+def compute_dE(dz_opt, beta, z_hat, reg):
+    if z_hat is None:
+        z_hat = 0
+    return (
+        # l2 term
+        .5 * dz_opt * (2*z_hat + dz_opt) - beta * dz_opt
+        # l1 term
+        + reg * (abs(z_hat) - abs(z_hat + dz_opt))
+        )
 
 
 def _check_convergence(segments, tol, iteration, dz_opt, n_coordinates,
@@ -376,7 +429,7 @@ def _check_convergence(segments, tol, iteration, dz_opt, n_coordinates,
         only be checked if accumulator <= tol.
     """
     # check stopping criterion
-    if strategy == 'greedy':
+    if strategy in ['greedy', 'gs-r']:
         if not segments.exist_active_segment():
             return True
     else:

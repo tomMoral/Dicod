@@ -17,14 +17,14 @@ from ._dicod import _send_task, _find_grid_size, _collect_end_stat
 from ._dicod import recv_cost, recv_z_hat, recv_sufficient_statistics
 
 
-DEFAULT_DICOD_KWARGS = dict(tol=1e-1, max_iter=int(1e8), timeout=None)
+DEFAULT_DICOD_KWARGS = dict(max_iter=int(1e8), timeout=None)
 
 
 def dicodil(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
-            n_seg='auto', dicod_kwargs=DEFAULT_DICOD_KWARGS, w_world='auto',
-            n_jobs=4, hostfile=None, stopping_pobj=None, eps=1e-5,
-            raise_on_increase=True, random_state=None, name="DICODIL",
-            verbose=0):
+            n_seg='auto', tol=1e-1, dicod_kwargs=DEFAULT_DICOD_KWARGS,
+            w_world='auto', n_jobs=4, hostfile=None, stopping_pobj=None,
+            eps=1e-5, raise_on_increase=True, random_state=None,
+            name="DICODIL", verbose=0):
 
     lmbd_max = get_lambda_max(X[None], D_hat).max()
     if verbose > 5:
@@ -33,9 +33,11 @@ def dicodil(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
 
     params = dicod_kwargs.copy()
     params.update(dict(
-        strategy=strategy, n_seg=n_seg, z_positive=z_positive, verbose=verbose,
-        random_state=random_state, reg=reg_, timing=False, use_soft_lock=True,
-        has_z0=True, return_ztz=False, freeze_support=False, debug=False
+        strategy=strategy, n_seg=n_seg, z_positive=z_positive, tol=tol,
+        random_state=random_state, reg=reg_, verbose=verbose, timing=False,
+        use_soft_lock=True, has_z0=True, return_ztz=False,
+        freeze_support=False, debug=False,
+
     ))
 
     n_channels, *sig_shape = X.shape
@@ -73,7 +75,7 @@ def dicodil(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
 
     z0 = np.zeros((n_atoms, *valid_shape))
 
-    comm = _spawn_workers(n_jobs, hostfile)
+    comm = _request_workers(n_jobs, hostfile)
     t_init = _send_task(comm, X, D_hat, reg_, z0, workers_segments, params)
 
     # monitor cost function
@@ -161,16 +163,22 @@ def dicodil(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
 
     update_z(comm, n_jobs, verbose=verbose)
     z_hat = get_z_hat(comm, n_atoms, workers_segments)
+    pobj.append(compute_cost(comm))
 
     runtime = np.sum(times)
-    print("[{}:INFO] Finshed in {:.0f}s".format(name, runtime))
+    _release_workers()
+    print("[{}:INFO] Finished in {:.0f}s".format(name, runtime))
     return pobj, times, D_hat, z_hat
 
 
-def _spawn_workers(n_jobs, hostfile):
+def _request_workers(n_jobs, hostfile):
     comm = get_reusable_workers(n_jobs, hostfile=hostfile)
     send_command_to_reusable_workers(constants.TAG_WORKER_RUN_DICODIL)
     return comm
+
+
+def _release_workers():
+    send_command_to_reusable_workers(constants.TAG_DICODIL_STOP)
 
 
 def update_worker_D(comm, D):

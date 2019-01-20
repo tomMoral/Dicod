@@ -32,11 +32,11 @@ def plot_atom_and_coefs(D_hat, z_hat, prefix):
     plt.imshow(z_hat.sum(axis=0).T > 0, cmap='gray')
     plt.axis('off')
     fig.tight_layout()
-    fig.savefig(f"hubble/{prefix}z_hat.pdf")
+    fig.savefig(f"hubble/{prefix}z_hat.pdf", dpi=1200)
 
     fig = plt.figure()
     X_hat = np.clip(reconstruct(z_hat, D_hat), 0, 1)
     plt.imshow(X_hat.swapaxes(0, 2))
     plt.axis('off')
     fig.tight_layout()
-    fig.savefig(f"hubble/{prefix}X_hat.pdf")
+    fig.savefig(f"hubble/{prefix}X_hat.pdf", dpi=1200)

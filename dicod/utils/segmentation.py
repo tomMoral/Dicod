@@ -84,7 +84,7 @@ class Segmentation:
         self.n_seg_per_axis = []
         for size_ax, size_seg_ax in zip(self.signal_shape, self.seg_shape):
             # Make sure that n_seg_ax is of type in (and not np.int*)
-            n_seg_ax = int(size_ax // size_seg_ax)
+            n_seg_ax = max(1, int(size_ax // size_seg_ax))
             self.n_seg_per_axis.append(n_seg_ax)
             self.effective_n_seg *= n_seg_ax
 
@@ -371,12 +371,12 @@ class Segmentation:
         for (start, end), (start_inner, end_inner) in zip(
                 update_bounds, inner_bounds):
             if start < start_inner:
-                assert start_inner < end < end_inner
+                assert start_inner < end <= end_inner
                 updated_slices.append(
                     pre_slice + (slice(start, start_inner),) +
                     post_slice)
             if end > end_inner:
-                assert start_inner < start < end_inner
+                assert start_inner < start <= end_inner
                 updated_slices.append(
                     pre_slice + (slice(end_inner, end),) +
                     post_slice)

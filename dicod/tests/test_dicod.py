@@ -34,7 +34,7 @@ def test_stopping_criterion(n_jobs, signal_shape, atom_shape):
     z_hat, *_ = dicod(X, D, reg, tol=tol, n_jobs=n_jobs,
                       hostfile=TEST_HOSTFILE, verbose=VERBOSE)
 
-    beta, dz_opt = _init_beta(X, D, reg, z_i=z_hat)
+    beta, dz_opt, _ = _init_beta(X, D, reg, z_i=z_hat)
     assert abs(dz_opt).max() < tol
 
 
@@ -93,7 +93,7 @@ def test_warm_start(valid_shape, atom_shape, reg):
 
     z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
                       max_iter=100000, hostfile=TEST_HOSTFILE, verbose=VERBOSE)
-    beta, dz_opt = _init_beta(X, D, reg, z_i=z_hat)
+    beta, dz_opt, _ = _init_beta(X, D, reg, z_i=z_hat)
     assert np.all(dz_opt <= tol)
 
 

@@ -106,6 +106,7 @@ def plot_scaling_benchmark():
     df = pandas.read_pickle("benchmarks_results/scaling_n_jobs.pkl")
     import matplotlib.lines as mlines
     handles = {}
+    fig = plt.figure(figsize=(6, 4))
 
     colors = ['C0', 'C1', 'C2']
     n_jobs = df['n_jobs'].unique()
@@ -128,25 +129,30 @@ def plot_scaling_benchmark():
             plt.fill_between(n_jobs, runtimes - runtime_std,
                              runtimes + runtime_std, alpha=.1)
             color_handle = mlines.Line2D(
-                [], [], linestyle='-', c=c, label=f"$\lambda = {reg:.2f}$")
+                [], [], linestyle='-', c=c, label=f"${reg:.2f}\lambda_\max$")
             style_handle = mlines.Line2D(
                 [], [], linestyle=style, c='k', label=f"{strategy}")
-            handles[strategy] = style_handle
             handles[str(reg)] = color_handle
+            handles[strategy] = style_handle
     plt.xlim((1, 400))
-    plt.xticks(n_jobs, n_jobs, fontsize=14)
-    plt.yticks(fontsize=14)
-    plt.minorticks_off()
-    plt.xlabel("# cores $M$", fontsize=18)
-    plt.ylabel("Runtime [sec]", fontsize=18)
+    # plt.ylim((1e1, 1e4))
+    # plt.xticks(n_jobs, n_jobs, fontsize=14)
+    # plt.yticks(fontsize=14)
+    # plt.minorticks_off(axis='y')
+    plt.xlabel("# workers $W$", fontsize=12)
+    plt.ylabel("Runtime [sec]", fontsize=12)
+    plt.grid(True, which="both", axis='x')
+    plt.grid(True, which="major", axis='y')
 
     keys = list(handles.keys())
     keys.sort()
     handles = [handles[k] for k in keys]
-    plt.legend(handles=handles, ncol=2, fontsize=16)
+    plt.legend(handles=handles, ncol=2, fontsize=14)
     plt.tight_layout()
-    plt.savefig("benchmarks_results/scaling_n_jobs.pdf")
+    plt.savefig("benchmarks_results/scaling_n_jobs.pdf", dpi=300,
+                bbox_inches='tight', pad_inches=0)
     plt.show()
+
 
 if __name__ == "__main__":
     import argparse

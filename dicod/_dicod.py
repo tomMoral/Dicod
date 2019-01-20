@@ -177,12 +177,12 @@ def reconstruct_pobj(X, D, reg, _log, t_init, t_reduce, n_jobs,
         up_ii += ii - last_ii[rank]
         last_ii[rank] = ii
         if up_ii >= next_ii_cost:
-            p_obj.append((up_ii, t_update + t_init, compute_objective(X, z_hat,
-                                                                      D, reg)))
+            p_obj.append((up_ii, t_update + t_init,
+                          compute_objective(X, z_hat, D, reg)))
             next_ii_cost = next_ii_cost * 2
             print("\rReconstructing cost {:7.2%}"
                   .format(np.log2(up_ii)/np.log2(max_ii)), end='', flush=True)
-        elif i % 1000:
+        elif i + 1 % 1000:
             print("\rReconstructing cost {:7.2%}"
                   .format(np.log2(up_ii)/np.log2(max_ii)), end='', flush=True)
     print('\rReconstruction cost: done'.ljust(40))
