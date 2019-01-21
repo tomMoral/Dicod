@@ -1,4 +1,3 @@
-import os
 import pytest
 import numpy as np
 
@@ -12,7 +11,6 @@ from dicod.utils.csc import reconstruct, compute_objective
 
 VERBOSE = 100
 N_WORKERS = 4
-TEST_HOSTFILE = os.path.join(os.path.dirname(__file__), 'hostfile')
 
 
 @pytest.mark.parametrize('signal_shape, atom_shape', [((800,), (50,)),
@@ -31,8 +29,7 @@ def test_stopping_criterion(n_jobs, signal_shape, atom_shape):
     sum_axis = tuple(range(1, D.ndim))
     D /= np.sqrt(np.sum(D * D, axis=sum_axis, keepdims=True))
 
-    z_hat, *_ = dicod(X, D, reg, tol=tol, n_jobs=n_jobs,
-                      hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+    z_hat, *_ = dicod(X, D, reg, tol=tol, n_jobs=n_jobs, verbose=VERBOSE)
 
     beta, dz_opt, _ = _init_beta(X, D, reg, z_i=z_hat)
     assert abs(dz_opt).max() < tol
@@ -58,8 +55,7 @@ def test_ztz(valid_shape, atom_shape):
     D /= np.sqrt(np.sum(D * D, axis=(1, 2), keepdims=True))
 
     z_hat, ztz, ztX, *_ = dicod(X, D, reg, tol=tol, n_jobs=N_WORKERS,
-                                return_ztz=True, hostfile=TEST_HOSTFILE,
-                                verbose=VERBOSE)
+                                return_ztz=True, verbose=VERBOSE)
 
     ztz_full = compute_ztz(z_hat, atom_shape)
     assert np.allclose(ztz_full, ztz)
@@ -86,13 +82,13 @@ def test_warm_start(valid_shape, atom_shape, reg):
     X = reconstruct(z, D)
 
     z_hat, *_ = dicod(X, D, reg=0, z0=z, tol=tol, n_jobs=N_WORKERS,
-                      max_iter=10000, hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+                      max_iter=10000, verbose=VERBOSE)
     assert np.allclose(z_hat, z)
 
     X = rng.randn(*X.shape)
 
     z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
-                      max_iter=100000, hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+                      max_iter=100000, verbose=VERBOSE)
     beta, dz_opt, _ = _init_beta(X, D, reg, z_i=z_hat)
     assert np.all(dz_opt <= tol)
 
@@ -118,13 +114,11 @@ def test_freeze_support(valid_shape, atom_shape):
     X = rng.randn(n_channels, *sig_shape)
 
     z_hat, *_ = dicod(X, D, reg, z0=0 * z, tol=tol, n_jobs=N_WORKERS,
-                      max_iter=1000, freeze_support=True,
-                      hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+                      max_iter=1000, freeze_support=True, verbose=VERBOSE)
     assert np.all(z_hat == 0)
 
     z_hat, *_ = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
-                      max_iter=1000, freeze_support=True,
-                      hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+                      max_iter=1000, freeze_support=True, verbose=VERBOSE)
 
     assert np.all(z_hat[z == 0] == 0)
 
@@ -152,6 +146,6 @@ def test_cost(valid_shape, atom_shape):
 
     z_hat, *_, cost = dicod(X, D, reg, z0=z, tol=tol, n_jobs=N_WORKERS,
                             max_iter=1000, freeze_support=True,
-                            hostfile=TEST_HOSTFILE, verbose=VERBOSE)
+                            verbose=VERBOSE)
 
     assert np.isclose(cost, compute_objective(X, z_hat, D, reg))

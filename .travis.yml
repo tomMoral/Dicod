@@ -3,8 +3,6 @@ language: python
 sudo: required
 python: "3.6"
 
-env: MPI_HOSTFILE="hostfile"
-
 
 before_install:
   - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
@@ -21,11 +19,12 @@ before_install:
 install:
   - pip install -e .
   # Use an hostfile to ensure we have enough slots
-  - echo "localhost slots=6">hostfile
+  - echo "localhost slots=16">hostfile
 
 script:
   - which python
-  - pytest
+  - cat hostfile
+  - MPI_HOSTFILE="hostfile" pytest
 
 notifications:
   webhooks:
