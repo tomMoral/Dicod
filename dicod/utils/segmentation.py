@@ -371,12 +371,12 @@ class Segmentation:
         for (start, end), (start_inner, end_inner) in zip(
                 update_bounds, inner_bounds):
             if start < start_inner:
-                assert start_inner < end <= end_inner
+                assert start_inner <= end <= end_inner
                 updated_slices.append(
                     pre_slice + (slice(start, start_inner),) +
                     post_slice)
             if end > end_inner:
-                assert start_inner < start <= end_inner
+                assert start_inner <= start <= end_inner
                 updated_slices.append(
                     pre_slice + (slice(end_inner, end),) +
                     post_slice)

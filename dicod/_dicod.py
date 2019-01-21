@@ -86,7 +86,7 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     z_hat : ndarray, shape (n_atoms, *valid_shape)
         Activation associated to X_i for the given dictionary D
     """
-    if n_jobs == 1:
+    if n_jobs == 1 and False:
         return coordinate_descent(
             X_i, D, reg, z0=z0, n_seg=n_seg, strategy=strategy, tol=tol,
             max_iter=max_iter, timeout=timeout, z_positive=z_positive,
@@ -125,7 +125,7 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     worker_valid_shape = workers_segments.get_seg_shape(0, inner=True)
     for size_atom_ax, size_valid_ax in zip(atom_shape, worker_valid_shape):
         if 2 * size_atom_ax - 1 >= size_valid_ax:
-            raise ValueError("Using too many cores.")
+            raise ValueError("Using too many cores. {}".format((2 * size_atom_ax - 1, size_valid_ax)))
 
     comm = _spawn_workers(n_jobs, hostfile)
     t_init = _send_task(comm, X_i, D, reg, z0, workers_segments, params)
@@ -138,7 +138,8 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
 
     # Wait for the result computation
     comm.Barrier()
-    _collect_end_stat(comm, n_jobs, verbose=verbose)
+    runtime, n_coordinate_updates = _collect_end_stat(comm, n_jobs,
+                                                      verbose=verbose)
 
     z_hat, ztz, ztX, cost, _log, t_reduce = _recv_result(
         comm, D.shape, valid_shape, workers_segments, return_ztz=return_ztz,
@@ -149,7 +150,7 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         p_obj = reconstruct_pobj(X_i, D, reg, _log, t_init, t_reduce,
                                  n_jobs=n_jobs, valid_shape=valid_shape, z0=z0)
     else:
-        p_obj = None
+        p_obj = [[n_coordinate_updates, runtime, cost]]
     return z_hat, ztz, ztX, p_obj, cost
 
 
@@ -293,6 +294,7 @@ def _collect_end_stat(comm, n_jobs, verbose=0):
         print("\r[DICOD-{}:INFO] converged in {:.3f}s with {:.0f} coordinate "
               "updates.".format(n_jobs, runtime,
                                 n_coordinate_updates))
+    return runtime, n_coordinate_updates
 
 
 def _recv_result(comm, D_shape, valid_shape, workers_segments,

@@ -4,12 +4,12 @@ import numpy as np
 import matplotlib.pyplot as plt
 from joblib import Memory
 
-from alphacsc.init_dict import init_dictionary
-from alphacsc.utils.dictionary import get_lambda_max
 
 from dicod import dicod
 from dicod.data import get_mandril
 from dicod.utils.segmentation import Segmentation
+from dicod.utils.dictionary import get_lambda_max
+from dicod.utils.dictionary import init_dictionary
 from dicod.utils.shape_helpers import get_valid_shape
 from dicod.utils.csc import compute_objective, reconstruct
 
@@ -23,10 +23,8 @@ def run_without_soft_lock(n_atoms=25, atom_support=(12, 12), reg=.01,
     rng = np.random.RandomState(random_state)
 
     X = get_mandril()
-    n_channels, *sig_shape = X.shape
-    D_init = init_dictionary(X[None], n_atoms, atom_support, D_init='chunk',
-                             rank1=False, random_state=rng)
-    lmbd_max = get_lambda_max(X[None], D_init).max()
+    D_init = init_dictionary(X, n_atoms, atom_support, random_state=rng)
+    lmbd_max = get_lambda_max(X, D_init).max()
     reg_ = reg * lmbd_max
 
     z_hat, *_ = dicod(

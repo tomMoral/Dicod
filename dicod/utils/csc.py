@@ -4,39 +4,7 @@ Author : tommoral <thomas.moreau@inria.fr>
 """
 
 import numpy as np
-from scipy.signal import fftconvolve
-
-
-def compute_norm_atoms(D):
-    """Compute the norm of the atoms
-
-    Parameters
-    ----------
-    D : ndarray, shape (n_atoms, n_channels, *atom_shape)
-        Current dictionary for the sparse coding
-    """
-    # Average over the channels and sum over the size of the atom
-    sum_axis = tuple(range(1, D.ndim))
-    norm_atoms = np.sum(D * D, axis=sum_axis, keepdims=True)
-    norm_atoms += (norm_atoms == 0)
-    return norm_atoms[:, 0]
-
-
-def compute_DtD(D):
-    """Compute the transpose convolution between the atoms
-
-    Parameters
-    ----------
-    D : ndarray, shape (n_atoms, n_channels, *atom_shape)
-        Current dictionary for the sparse coding
-    """
-    # Average over the channels
-    flip_axis = tuple(range(2, D.ndim))
-    DtD = np.sum([[[fftconvolve(di_p, dj_p, mode='full')
-                    for di_p, dj_p in zip(di, dj)]
-                   for dj in D]
-                  for di in np.flip(D, axis=flip_axis)], axis=2)
-    return DtD
+from scipy import signal
 
 
 def compute_ztz(z, atom_shape, padding_shape=None):
@@ -75,7 +43,7 @@ def compute_ztz(z, atom_shape, padding_shape=None):
     else:
         # compute the cross correlation between z and z_pad
         z_pad_reverse = np.flip(z_pad, axis=tuple(range(1, z.ndim)))
-        ztz = np.array([[fftconvolve(z_pad_k0, z_k, mode='valid')
+        ztz = np.array([[signal.fftconvolve(z_pad_k0, z_k, mode='valid')
                          for z_k in z]
                         for z_pad_k0 in z_pad_reverse])
     assert ztz.shape == ztz_shape, (ztz.shape, ztz_shape)
@@ -125,7 +93,7 @@ def soft_thresholding(x, mu, positive=False):
 
 
 def reconstruct(z_hat, D):
-    X_hat = np.sum([[fftconvolve(z_k, d_kp) for d_kp in d_k]
+    X_hat = np.sum([[signal.fftconvolve(z_k, d_kp) for d_kp in d_k]
                     for z_k, d_k in zip(z_hat, D)], axis=0)
     return X_hat
 

@@ -1,14 +1,14 @@
-import os
 import pandas
 import numpy as np
 import matplotlib.pyplot as plt
 from collections import namedtuple
 
 from dicod import dicod
+from dicod.data import get_mandril
 from dicod.utils import check_random_state
+from dicod.utils.dictionary import get_lambda_max
 from dicod.utils.shape_helpers import get_valid_shape
 
-from alphacsc.utils.dictionary import get_lambda_max
 
 from joblib import Memory
 mem = Memory(location='.')
@@ -19,11 +19,7 @@ ResultItem = namedtuple('ResultItem', [
 
 
 def get_problem(n_atoms, atom_support, seed):
-    data_dir = os.environ.get("DATA_DIR", "../../data")
-    mandril = os.path.join(data_dir, "images/standard_images/mandril_color.tif")
-
-    X = plt.imread(mandril) / 255
-    X = X.swapaxes(0, 2)
+    X = get_mandril()
 
     rng = check_random_state(seed)
 
@@ -105,12 +101,15 @@ def run_scaling_benchmark(max_n_jobs, n_rep=1):
 def plot_scaling_benchmark():
     df = pandas.read_pickle("benchmarks_results/scaling_n_jobs.pkl")
     import matplotlib.lines as mlines
-    handles = {}
-    fig = plt.figure(figsize=(6, 4))
+    handles_lmbd = {}
+    handles_strat = {}
+    fig = plt.figure(figsize=(6, 3))
+    ax = plt.subplot()
 
     colors = ['C0', 'C1', 'C2']
     n_jobs = df['n_jobs'].unique()
     regs = df['reg'].unique()
+    regs.sort()
     for reg, c in zip(regs, colors):
         for strategy, style in [('Greedy', '--'), ('LGCD', '-')]:
             s = strategy.lower()
@@ -132,8 +131,8 @@ def plot_scaling_benchmark():
                 [], [], linestyle='-', c=c, label=f"${reg:.2f}\lambda_\max$")
             style_handle = mlines.Line2D(
                 [], [], linestyle=style, c='k', label=f"{strategy}")
-            handles[str(reg)] = color_handle
-            handles[strategy] = style_handle
+            handles_lmbd[reg] = color_handle
+            handles_strat[strategy] = style_handle
     plt.xlim((1, 400))
     # plt.ylim((1e1, 1e4))
     # plt.xticks(n_jobs, n_jobs, fontsize=14)
@@ -144,10 +143,13 @@ def plot_scaling_benchmark():
     plt.grid(True, which="both", axis='x')
     plt.grid(True, which="major", axis='y')
 
-    keys = list(handles.keys())
-    keys.sort()
-    handles = [handles[k] for k in keys]
-    plt.legend(handles=handles, ncol=2, fontsize=14)
+    # keys = list(handles.keys())
+    # keys.sort()
+    # handles = [handles[k] for k in keys]
+    legend_lmbd = plt.legend(handles=handles_lmbd.values(), loc=1,
+                             fontsize=14)
+    plt.legend(handles=handles_strat.values(), loc=3, fontsize=14)
+    ax.add_artist(legend_lmbd)
     plt.tight_layout()
     plt.savefig("benchmarks_results/scaling_n_jobs.pdf", dpi=300,
                 bbox_inches='tight', pad_inches=0)

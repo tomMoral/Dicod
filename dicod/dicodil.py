@@ -3,12 +3,12 @@ import sys
 import time
 import numpy as np
 
-from alphacsc.update_d_multi import update_d
-from alphacsc.init_dict import get_max_error_dict
-from alphacsc.utils.dictionary import get_lambda_max
 
 from .utils import constants
+from .update_d import update_d
 from .utils.segmentation import Segmentation
+from .utils.dictionary import get_lambda_max
+from .utils.dictionary import get_max_error_dict
 from .workers.reusable_workers import get_reusable_workers
 from .utils.mpi import broadcast_array, recv_reduce_sum_array
 from .workers.reusable_workers import send_command_to_reusable_workers
@@ -26,7 +26,7 @@ def dicodil(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
             eps=1e-5, raise_on_increase=True, random_state=None,
             name="DICODIL", verbose=0):
 
-    lmbd_max = get_lambda_max(X[None], D_hat).max()
+    lmbd_max = get_lambda_max(X, D_hat).max()
     if verbose > 5:
         print("[DICODIL:DEBUG] Lambda_max = {}".format(lmbd_max))
     reg_ = reg * lmbd_max

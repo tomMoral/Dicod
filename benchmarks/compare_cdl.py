@@ -6,10 +6,10 @@ from collections import namedtuple
 
 from dicod.dicodil import dicodil
 from dicod.data import get_mandril
-from alphacsc.utils.dictionary import get_lambda_max
-from sporco.dictlrn.prlcnscdl import ConvBPDNDictLearn_Consensus
+from dicod.utils.dictionary import get_lambda_max
+from dicod.utils.dictionary import init_dictionary
 
-from alphacsc.init_dict import init_dictionary
+from sporco.dictlrn.prlcnscdl import ConvBPDNDictLearn_Consensus
 
 from joblib import Memory
 mem = Memory(location='.')
@@ -25,14 +25,14 @@ def run_one(method, n_atoms, atom_support, reg, z_positive, n_jobs, n_iter,
             random_state):
 
     X = get_mandril()
-    D_init = init_dictionary(X[None], n_atoms, atom_support, D_init='chunk',
-                             rank1=False, random_state=random_state)
+    D_init = init_dictionary(X, n_atoms, atom_support,
+                             random_state=random_state)
 
     if method == 'wohlberg':
         ################################################################
         #            Run parallel consensus ADMM
         #
-        lmbd_max = get_lambda_max(X[None], D_init).max()
+        lmbd_max = get_lambda_max(X, D_init).max()
         print("Lambda max = {}".format(lmbd_max))
         reg_ = reg * lmbd_max
 

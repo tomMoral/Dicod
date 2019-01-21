@@ -1,4 +1,3 @@
-import os
 import pandas
 import numpy as np
 import matplotlib.pyplot as plt
@@ -7,9 +6,10 @@ from collections import namedtuple
 from dicod import dicod
 from dicod.data import get_mandril
 from dicod.utils import check_random_state
+from dicod.utils.dictionary import get_lambda_max
+from dicod.utils.dictionary import init_dictionary
 from dicod.utils.shape_helpers import get_valid_shape
 
-from alphacsc.utils.dictionary import get_lambda_max
 
 from joblib import Memory
 mem = Memory(location='.')
@@ -19,34 +19,13 @@ ResultItem = namedtuple('ResultItem', [
     'sparsity', 'pobj'])
 
 
-def get_problem(n_atoms, atom_support, seed):
-
-    X = get_mandril()
-
-    rng = check_random_state(seed)
-
-    n_channels, *sig_shape = X.shape
-    valid_shape = get_valid_shape(sig_shape, atom_support)
-
-    indices = np.c_[[rng.randint(size_ax, size=(n_atoms))
-                     for size_ax in valid_shape]].T
-    D = np.empty(shape=(n_atoms, n_channels, *atom_support))
-    for k, pt in enumerate(indices):
-        D_slice = tuple([Ellipsis] + [
-            slice(v, v + size_ax) for v, size_ax in zip(pt, atom_support)])
-        D[k] = X[D_slice]
-    sum_axis = tuple(range(1, D.ndim))
-    D /= np.sqrt(np.sum(D*D, axis=sum_axis, keepdims=True))
-
-    return X, D
-
-
 @mem.cache(ignore=['verbose'])
 def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, seed,
                  verbose):
     # Generate a problem
-    X, D = get_problem(n_atoms, atom_support, seed)
-    reg_ = reg * get_lambda_max(X[None], D).max()
+    X = get_mandril()
+    D = init_dictionary(X, n_atoms, atom_support, seed=seed)
+    reg_ = reg * get_lambda_max(X, D).max()
 
     if grid:
         w_world = 'auto'

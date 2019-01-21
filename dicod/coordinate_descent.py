@@ -12,7 +12,7 @@ from .utils import check_random_state
 from .utils import debug_flags as flags
 from .utils.segmentation import Segmentation
 from .utils.csc import compute_ztz, compute_ztX
-from .utils.csc import compute_DtD, compute_norm_atoms
+from .utils.dictionary import compute_DtD, compute_norm_atoms
 from .utils.csc import compute_objective, soft_thresholding, reconstruct
 
 
@@ -114,8 +114,8 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         deadline = None
     for ii in range(max_iter):
         if ii % 1000 == 0 and verbose > 0:
-            print("\r[LGCD:PROGRESS] {:7.2%} iterations"
-                  .format(ii / max_iter), end='', flush=True)
+            print("\r[LGCD:PROGRESS] {:.0f}s - {:7.2%} iterations"
+                  .format(t_update, ii / max_iter), end='', flush=True)
 
         i_seg = segments.increment_seg(i_seg)
         if segments.is_active_segment(i_seg):
@@ -144,13 +144,13 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
             if flags.CHECK_ACTIVE_SEGMENTS and n_changed_status:
                 segments.test_active_segment(dz_opt, tol)
 
+            t_update += time.time() - t_start_update
             if timing:
-                t_update += time.time() - t_start_update
                 if ii >= next_cost:
                     p_obj.append((ii, t_update,
                                   compute_objective(X_i, z_hat, D, reg)))
                     next_cost = next_cost * 2
-                t_start_update = time.time()
+            t_start_update = time.time()
         elif strategy in ["greedy", 'gs-r']:
             segments.set_inactive_segments(i_seg)
 
@@ -177,13 +177,16 @@ def coordinate_descent(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
                   "updates. Max of |dz|={}."
                   .format(n_coordinate_updates, abs(dz_opt).max()))
 
+    runtime = time.time() - t_start
     if verbose > 0:
-        print("\r[LGCD:INFO] done in {:.3}s".format(time.time() - t_start))
+        print("\r[LGCD:INFO] done in {:.3}s".format(runtime))
 
     ztz, ztX = None, None
     if return_ztz:
         ztz = compute_ztz(z_hat, atom_shape)
         ztX = compute_ztX(z_hat, X_i)
+
+    p_obj.append([n_coordinate_updates, t_update, None])
 
     return z_hat, ztz, ztX, p_obj, None
 

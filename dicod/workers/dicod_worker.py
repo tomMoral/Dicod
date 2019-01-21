@@ -15,7 +15,7 @@ from dicod.utils.segmentation import Segmentation
 from dicod.utils.mpi import recv_broadcasted_array
 from dicod.utils.csc import compute_ztz, compute_ztX
 from dicod.utils.shape_helpers import get_full_shape
-from dicod.utils.csc import compute_DtD, compute_norm_atoms
+from dicod.utils.dictionary import compute_DtD, compute_norm_atoms
 
 from dicod.coordinate_descent import _select_coordinate
 from dicod.coordinate_descent import _check_convergence
