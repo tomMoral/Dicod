@@ -12,7 +12,10 @@ __pycache__
 *sublime*
 
 # Save experiences
-save_exp
+/save_exp
+
+# Development scripts
+/dev_scripts
 
 # Config files
 hostfile
