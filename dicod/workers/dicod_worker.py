@@ -48,9 +48,9 @@ class DICODWorker:
         self.verbose = params['verbose']
         self.strategy = params['strategy']
         self.max_iter = params['max_iter']
+        self.soft_lock = params['soft_lock']
         self.z_positive = params['z_positive']
         self.return_ztz = params['return_ztz']
-        self.use_soft_lock = params['use_soft_lock']
         self.freeze_support = params['freeze_support']
 
         if self.timeout:
@@ -114,7 +114,7 @@ class DICODWorker:
 
         self.info("Start DICOD with {} workers, strategy '{}', soft_lock"
                   "={} and n_seg={}({})", self.n_jobs, self.strategy,
-                  self.use_soft_lock, self.n_seg,
+                  self.soft_lock, self.n_seg,
                   self.local_segments.effective_n_seg, global_msg=True)
 
         self.synchronize_workers()
@@ -180,11 +180,13 @@ class DICODWorker:
 
             # Check if the coordinate is soft-locked or not.
             soft_locked = False
-            if pt0 is not None and abs(dz) > self.tol and self.use_soft_lock:
+            if (pt0 is not None and abs(dz) > self.tol and
+                    self.soft_lock != 'none'):
+                n_lock = 1 if self.soft_lock == "corner" else 0
                 lock_slices = self.workers_segments.get_touched_overlap_slices(
                     self.rank, pt0, np.array(self.overlap) + 1)
                 # Only soft lock in the corners
-                if len(lock_slices) > 1:
+                if len(lock_slices) > n_lock:
                     max_on_lock = 0
                     for u_slice in lock_slices:
                         max_on_lock = max(abs(self.dz_opt[u_slice]).max(),

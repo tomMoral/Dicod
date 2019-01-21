@@ -77,7 +77,7 @@ def run_scaling_benchmark(max_n_jobs, n_rep=1):
     timeout = 9000
     max_iter = int(1e8)
 
-    dicod_kwargs = dict(z_positive=False, use_soft_lock=True)
+    dicod_kwargs = dict(z_positive=False, soft_lock='border')
 
     reg_list = np.logspace(-3, np.log10(.5), 10)[::-1][:3]
 

@@ -5,10 +5,8 @@ from collections import namedtuple
 
 from dicod import dicod
 from dicod.data import get_mandril
-from dicod.utils import check_random_state
 from dicod.utils.dictionary import get_lambda_max
 from dicod.utils.dictionary import init_dictionary
-from dicod.utils.shape_helpers import get_valid_shape
 
 
 from joblib import Memory
@@ -32,7 +30,7 @@ def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, seed,
     else:
         w_world = n_jobs
 
-    dicod_kwargs = dict(z_positive=False, use_soft_lock=True, timeout=None,
+    dicod_kwargs = dict(z_positive=False, soft_lock='corner', timeout=None,
                         max_iter=int(1e8))
     z_hat, *_, pobj, cost = dicod(
         X, D, reg=reg_, n_seg='auto', strategy='greedy', w_world=w_world,

@@ -20,22 +20,22 @@ from ._dicod import recv_cost, recv_z_hat, recv_sufficient_statistics
 DEFAULT_DICOD_KWARGS = dict(max_iter=int(1e8), timeout=None)
 
 
-def dicodil(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
-            n_seg='auto', tol=1e-1, dicod_kwargs=DEFAULT_DICOD_KWARGS,
-            w_world='auto', n_jobs=4, hostfile=None, stopping_pobj=None,
-            eps=1e-5, raise_on_increase=True, random_state=None,
-            name="DICODIL", verbose=0):
+def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
+             n_seg='auto', tol=1e-1, dicod_kwargs=DEFAULT_DICOD_KWARGS,
+             w_world='auto', n_jobs=4, hostfile=None, stopping_pobj=None,
+             eps=1e-5, raise_on_increase=True, random_state=None,
+             name="DICODILE", verbose=0):
 
     lmbd_max = get_lambda_max(X, D_hat).max()
     if verbose > 5:
-        print("[DICODIL:DEBUG] Lambda_max = {}".format(lmbd_max))
+        print("[DICODILE:DEBUG] Lambda_max = {}".format(lmbd_max))
     reg_ = reg * lmbd_max
 
     params = dicod_kwargs.copy()
     params.update(dict(
         strategy=strategy, n_seg=n_seg, z_positive=z_positive, tol=tol,
         random_state=random_state, reg=reg_, verbose=verbose, timing=False,
-        use_soft_lock=True, has_z0=True, return_ztz=False,
+        soft_lock='border', has_z0=True, return_ztz=False,
         freeze_support=False, debug=False,
 
     ))
@@ -173,21 +173,21 @@ def dicodil(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
 
 def _request_workers(n_jobs, hostfile):
     comm = get_reusable_workers(n_jobs, hostfile=hostfile)
-    send_command_to_reusable_workers(constants.TAG_WORKER_RUN_DICODIL)
+    send_command_to_reusable_workers(constants.TAG_WORKER_RUN_DICODILE)
     return comm
 
 
 def _release_workers():
-    send_command_to_reusable_workers(constants.TAG_DICODIL_STOP)
+    send_command_to_reusable_workers(constants.TAG_DICODILE_STOP)
 
 
 def update_worker_D(comm, D):
-    send_command_to_reusable_workers(constants.TAG_DICODIL_UPDATE_D)
+    send_command_to_reusable_workers(constants.TAG_DICODILE_UPDATE_D)
     broadcast_array(comm, D)
 
 
 def update_z(comm, n_jobs, verbose=0):
-    send_command_to_reusable_workers(constants.TAG_DICODIL_UPDATE_Z)
+    send_command_to_reusable_workers(constants.TAG_DICODILE_UPDATE_Z)
     # Wait first for the end of the initialization
     comm.Barrier()
     # Then first for the end of the computation
@@ -196,20 +196,21 @@ def update_z(comm, n_jobs, verbose=0):
 
 
 def compute_cost(comm):
-    send_command_to_reusable_workers(constants.TAG_DICODIL_GET_COST)
+    send_command_to_reusable_workers(constants.TAG_DICODILE_GET_COST)
     return recv_cost(comm)
 
 
 def get_z_hat(comm, n_atoms, workers_segments):
-    send_command_to_reusable_workers(constants.TAG_DICODIL_GET_Z_HAT)
+    send_command_to_reusable_workers(constants.TAG_DICODILE_GET_Z_HAT)
     return recv_z_hat(comm, n_atoms, workers_segments)
 
 
 def get_z_nnz(comm, n_atoms):
-    send_command_to_reusable_workers(constants.TAG_DICODIL_GET_Z_NNZ)
+    send_command_to_reusable_workers(constants.TAG_DICODILE_GET_Z_NNZ)
     return recv_reduce_sum_array(comm, n_atoms)
 
 
 def get_sufficient_statistics(comm, D_shape):
-    send_command_to_reusable_workers(constants.TAG_DICODIL_GET_SUFFICIENT_STAT)
+    send_command_to_reusable_workers(
+        constants.TAG_DICODILE_GET_SUFFICIENT_STAT)
     return recv_sufficient_statistics(comm, D_shape)

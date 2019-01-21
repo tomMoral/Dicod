@@ -28,7 +28,7 @@ interactive_args = ["-fa", "Monospace", "-fs", "12", "-e", "ipython", "-i"]
 
 
 def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
-          use_soft_lock=True, n_jobs=1, w_world='auto', hostfile=None,
+          soft_lock='border', n_jobs=1, w_world='auto', hostfile=None,
           tol=1e-5, max_iter=100000, timeout=None, z_positive=False,
           return_ztz=False, freeze_support=False, timing=False,
           random_state=None, verbose=0, debug=False):
@@ -51,7 +51,7 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
         Coordinate selection scheme for the coordinate descent. If set to
         'greedy', the coordinate with the largest value for dz_opt is selected.
         If set to 'random, the coordinate is chosen uniformly on the segment.
-    use_soft_lock : boolean
+    soft_lock : str in { 'none', 'corner', 'border' }
         If set to true, use the soft-lock in LGCD.
     n_jobs : int
         Number of workers used to compute the convolutional sparse coding
@@ -93,16 +93,20 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
             freeze_support=freeze_support, return_ztz=return_ztz,
             timing=timing, random_state=random_state, verbose=verbose)
 
+    # Parameters validation
+    n_channels, *sig_shape = X_i.shape
+    n_atoms, n_channels, *atom_shape = D.shape
+    assert D.ndim - 1 == X_i.ndim
+
+    assert soft_lock in ['none', 'corner', 'border']
+
     params = dict(
         strategy=strategy, tol=tol, max_iter=max_iter, timeout=timeout,
         n_seg=n_seg, z_positive=z_positive, verbose=verbose, timing=timing,
         debug=debug, random_state=random_state, reg=reg, return_ztz=return_ztz,
-        use_soft_lock=use_soft_lock, has_z0=z0 is not None,
+        soft_lock=soft_lock, has_z0=z0 is not None,
         freeze_support=freeze_support
     )
-    n_channels, *sig_shape = X_i.shape
-    n_atoms, n_channels, *atom_shape = D.shape
-    assert D.ndim - 1 == X_i.ndim
 
     params['valid_shape'] = valid_shape = tuple([
         size_ax - size_atom_ax + 1
@@ -125,7 +129,8 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     worker_valid_shape = workers_segments.get_seg_shape(0, inner=True)
     for size_atom_ax, size_valid_ax in zip(atom_shape, worker_valid_shape):
         if 2 * size_atom_ax - 1 >= size_valid_ax:
-            raise ValueError("Using too many cores. {}".format((2 * size_atom_ax - 1, size_valid_ax)))
+            raise ValueError("Using too many cores. {}".format(
+                (2 * size_atom_ax - 1, size_valid_ax)))
 
     comm = _spawn_workers(n_jobs, hostfile)
     t_init = _send_task(comm, X_i, D, reg, z0, workers_segments, params)

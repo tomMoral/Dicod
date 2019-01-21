@@ -29,7 +29,7 @@ def run_without_soft_lock(n_atoms=25, atom_support=(12, 12), reg=.01,
 
     z_hat, *_ = dicod(
         X, D_init, reg_, max_iter=1000000, n_jobs=n_jobs, strategy='greedy',
-        tol=tol, hostfile=hostfile, verbose=1, use_soft_lock=False,
+        tol=tol, hostfile=hostfile, verbose=1, soft_lock='none',
         z_positive=False, timing=False)
     pobj = compute_objective(X, z_hat, D_init, reg_)
     z_hat = np.clip(z_hat, -1e3, 1e3)
