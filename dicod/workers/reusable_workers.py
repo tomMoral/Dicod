@@ -77,6 +77,15 @@ def _spawn_workers(n_jobs, hostfile=None):
         hostfile = SYSTEM_HOSTFILE
     if hostfile and os.path.exists(hostfile):
         info.Set("hostfile", hostfile)
+
+    # Pass some environment variable to the child process
+    envstr = ''
+    for key in ['TESTING_DICOD']:
+        if key in os.environ:
+            envstr += f"{key}={os.environ[key]}\n"
+    info.Set("env", envstr)
+
+    # Spawn the workers
     script_name = os.path.join(os.path.dirname(__file__),
                                "main_worker.py")
     if flags.INTERACTIVE_PROCESSES:

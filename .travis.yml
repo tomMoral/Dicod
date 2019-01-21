@@ -3,9 +3,10 @@ language: python
 sudo: required
 python: "3.6"
 
+env: MPI_HOSTFILE="hostfile"
+
 
 before_install:
-  - sudo apt-get install -y libfftw3-dev
   - wget https://repo.continuum.io/miniconda/Miniconda3-latest-Linux-x86_64.sh -O miniconda.sh
   - bash miniconda.sh -b -p $HOME/miniconda
   - export PATH="$HOME/miniconda/bin:$PATH"
@@ -14,20 +15,17 @@ before_install:
   - conda update -q conda
   # Useful for debugging any issues with conda
   - conda info -a
-  - conda create -q -n ompi python=3.6 openmpi pytest joblib mpi4py matplotlib numpy scipy pytest joblib
+  - conda create -q -n ompi python=3.6 openmpi pytest mpi4py
   - source activate ompi
 
 install:
-  - ./build
-  # Make a fake hostfile
-  - echo "localhost slots=6">hostfile
   - pip install -e .
+  # Use an hostfile to ensure we have enough slots
+  - echo "localhost slots=6">hostfile
 
 script:
   - which python
-  - pytest --version
-  - timeout 10 dicod/c_dicod/test_barriere
-  - pytest -vlx --max_workers 2
+  - pytest
 
 notifications:
   webhooks:

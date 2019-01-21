@@ -29,7 +29,7 @@ def test_segmentation_coverage():
 
     z = np.zeros(sig_shape)
     inner_bounds = [(8, 100), (3, 50)]
-    inner_slice = [slice(start, end) for start, end in inner_bounds]
+    inner_slice = tuple([slice(start, end) for start, end in inner_bounds])
     segments = Segmentation(n_seg=7, inner_bounds=inner_bounds,
                             full_shape=sig_shape)
     for i_seg in range(segments.effective_n_seg):
@@ -117,7 +117,7 @@ def test_touched_segments():
 
     # Check an error is returned when touched radius is larger than seg_size
     segments = Segmentation(n_seg, signal_shape=sig_shape)
-    with pytest.raises(ValueError, message="too large"):
+    with pytest.raises(ValueError, match="too large"):
         segments.get_touched_segments((0, 0), (30, 2))
 
 

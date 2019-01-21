@@ -10,7 +10,7 @@ from dicod.utils.csc import compute_ztz, compute_ztX
 from dicod.utils.shape_helpers import get_full_shape
 from dicod.utils.csc import reconstruct, compute_objective
 
-VERBOSE = 10
+VERBOSE = 100
 N_WORKERS = 4
 TEST_HOSTFILE = os.path.join(os.path.dirname(__file__), 'hostfile')
 
@@ -42,7 +42,7 @@ def test_stopping_criterion(n_jobs, signal_shape, atom_shape):
                                                      ((72, 60), (10, 8))])
 def test_ztz(valid_shape, atom_shape):
     tol = .5
-    reg = 1
+    reg = .1
     n_atoms = 7
     n_channels = 5
     random_state = None

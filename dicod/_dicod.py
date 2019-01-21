@@ -86,6 +86,7 @@ def dicod(X_i, D, reg, z0=None, n_seg='auto', strategy='greedy',
     z_hat : ndarray, shape (n_atoms, *valid_shape)
         Activation associated to X_i for the given dictionary D
     """
+
     if n_jobs == 1 and False:
         return coordinate_descent(
             X_i, D, reg, z0=z0, n_seg=n_seg, strategy=strategy, tol=tol,

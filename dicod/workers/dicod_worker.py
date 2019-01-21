@@ -330,6 +330,7 @@ class DICODWorker:
             self.freezed_support = None
 
         self.synchronize_workers()
+
         t_local_init = time.time() - t_start
         self.info("End local initialization in {:.2f}s", t_local_init,
                   global_msg=True)
