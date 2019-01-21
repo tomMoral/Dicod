@@ -51,8 +51,7 @@ def run_one(T, L, K, d, noise_level, seed_pb, n_jobs, reg, tol, strategy,
 
 
 def run_scaling_1d_benchmark(T=151, max_jobs=75, n_rep=10, reg=0.1, tol=1e-5,
-                             timeout=7200, hostfile=None, strategy='lgcd',
-                             seed=None):
+                             timeout=7200, strategy='lgcd', seed=None):
     '''Run DICOD strategy for a certain problem with different value
     for n_jobs and store the runtime in csv files if given a save_dir.
 
@@ -71,10 +70,6 @@ def run_scaling_1d_benchmark(T=151, max_jobs=75, n_rep=10, reg=0.1, tol=1e-5,
     timeout: int, optional (default: 7200)
         maximal running time for DICOD. The default timeout
         is 2 hours
-    hostfile: str, optional (default: None)
-        hostfile for the openMPI API to connect to the other
-        running server to spawn the processes over different
-        nodes
     strategy: enum, optional (default: ALGO_GS)
         Algorithm used to select the update for the coordinate descent. It
         should be either ALGO_GS (greedy selection) or ALGO_RANDOM (random
@@ -93,8 +88,8 @@ def run_scaling_1d_benchmark(T=151, max_jobs=75, n_rep=10, reg=0.1, tol=1e-5,
     file_name = f'runtimes_n_jobs_{T}_{strategy}.csv'
     file_name = os.path.join(SAVE_DIR, file_name)
 
-    common_args = dict(timing=False, timeout=timeout,
-                       hostfile=hostfile, max_iter=int(5e8), verbose=2)
+    common_args = dict(timing=False, timeout=timeout, max_iter=int(5e8),
+                       verbose=2)
 
     n_jobs = np.logspace(0, np.log2(75), 10, base=2)
     n_jobs = [int(round(nj)) for nj in n_jobs if nj <= max_jobs]
@@ -107,7 +102,7 @@ def run_scaling_1d_benchmark(T=151, max_jobs=75, n_rep=10, reg=0.1, tol=1e-5,
     for j, seed_pb in enumerate(seeds):
         for nj in n_jobs:
             for reg in [.1, .01, .001]:
-                for tol in [1e-3, 1e-4, 1e-5]:
+                for tol in [1e-3, 1e-4]:  # , 1e-5]:
                     for strategy in ['lgcd', 'greedy']:
                         res = run_one(T, L, K, d, noise_level, seed_pb, nj,
                                       reg, tol, strategy, common_args)

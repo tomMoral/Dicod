@@ -1,5 +1,7 @@
 from setuptools import setup, find_packages
-setup(name='dicod',
+
+
+setup(name='dicodile',
       version='0.1.dev',
       packages=find_packages(),
       install_requires=[
@@ -7,5 +9,6 @@ setup(name='dicod',
           'scipy',
           'matplotlib',
           'mpi4py',
+          'joblib'
       ],
       )

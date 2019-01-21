@@ -18,6 +18,9 @@ _n_workers = None
 _worker_comm = None
 
 
+SYSTEM_HOSTFILE = os.environ.get("MPI_HOSTFILE", None)
+
+
 # Constants to start interactive workers
 INTERACTIVE_EXEC = "xterm"
 INTERACTIVE_ARGS = ["-fa", "Monospace", "-fs", "12", "-e", "ipython", "-i"]
@@ -67,10 +70,11 @@ def shutdown_reusable_workers():
         _worker_comm = None
 
 
-def _spawn_workers(n_jobs, hostfile):
+def _spawn_workers(n_jobs, hostfile=None):
     t_start = time.time()
     info = MPI.Info.Create()
-    # info.Set("map_bynode", '1')
+    if hostfile is None:
+        hostfile = SYSTEM_HOSTFILE
     if hostfile and os.path.exists(hostfile):
         info.Set("hostfile", hostfile)
     script_name = os.path.join(os.path.dirname(__file__),

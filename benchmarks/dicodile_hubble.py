@@ -26,7 +26,7 @@ def run_dicodile_hubble(size, reg, L):
 
     # Save the atoms
     prefix = (f"K{n_atoms}_L{L}_reg{reg}"
-            f"_seed{random_state}_dicodile_{size}_")
+              f"_seed{random_state}_dicodile_{size}_")
     prefix = prefix.replace(" ", "")
     np.save(f"hubble/{prefix}D_hat.npy", D_hat)
     z_hat[z_hat < 1e-2] = 0

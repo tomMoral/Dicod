@@ -14,7 +14,6 @@ from dicod.utils.shape_helpers import get_valid_shape
 from dicod.utils.csc import compute_objective, reconstruct
 
 mem = Memory(location='.')
-hostfile = os.environ.get("MPI_HOSTFILE", None)
 
 
 @mem.cache
@@ -29,8 +28,7 @@ def run_without_soft_lock(n_atoms=25, atom_support=(12, 12), reg=.01,
 
     z_hat, *_ = dicod(
         X, D_init, reg_, max_iter=1000000, n_jobs=n_jobs, strategy='greedy',
-        tol=tol, hostfile=hostfile, verbose=1, soft_lock='none',
-        z_positive=False, timing=False)
+        tol=tol, verbose=1, soft_lock='none', z_positive=False, timing=False)
     pobj = compute_objective(X, z_hat, D_init, reg_)
     z_hat = np.clip(z_hat, -1e3, 1e3)
     print("[DICOD] final cost : {}".format(pobj))

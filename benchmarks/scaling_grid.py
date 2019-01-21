@@ -13,16 +13,16 @@ from joblib import Memory
 mem = Memory(location='.')
 
 ResultItem = namedtuple('ResultItem', [
-    'n_atoms', 'atom_support', 'reg', 'n_jobs', 'grid', 'tol', 'seed',
+    'n_atoms', 'atom_support', 'reg', 'n_jobs', 'grid', 'tol', 'random_state',
     'sparsity', 'pobj'])
 
 
 @mem.cache(ignore=['verbose'])
-def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, seed,
+def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, random_state,
                  verbose):
     # Generate a problem
     X = get_mandril()
-    D = init_dictionary(X, n_atoms, atom_support, seed=seed)
+    D = init_dictionary(X, n_atoms, atom_support, random_state=random_state)
     reg_ = reg * get_lambda_max(X, D).max()
 
     if grid:
@@ -39,8 +39,8 @@ def run_one_grid(n_atoms, atom_support, reg, n_jobs, grid, tol, seed,
     sparsity = len(z_hat.nonzero()[0]) / z_hat.size
 
     return ResultItem(n_atoms=n_atoms, atom_support=atom_support, reg=reg,
-                      n_jobs=n_jobs, grid=grid, tol=tol, seed=seed,
-                      sparsity=sparsity, pobj=pobj)
+                      n_jobs=n_jobs, grid=grid, tol=tol,
+                      random_state=random_state, sparsity=sparsity, pobj=pobj)
 
 
 def run_scaling_grid(n_rep=1):
@@ -57,10 +57,10 @@ def run_scaling_grid(n_rep=1):
             for n_jobs in list_n_jobs:
                 if grid and n_jobs == 30:
                     n_jobs = 36
-                for seed in range(n_rep):
+                for random_state in range(n_rep):
                     try:
                         args = (n_atoms, atom_support, reg,
-                                n_jobs, grid, tol, seed, 1)
+                                n_jobs, grid, tol, random_state, 1)
                         res = run_one_grid(*args)
                         results.append(res)
                     except ValueError as e:

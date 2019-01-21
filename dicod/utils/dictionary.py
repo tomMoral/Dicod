@@ -94,8 +94,8 @@ def get_lambda_max(X, D_hat):
         ], axis=0) for D_k in D_hat])
 
 
-def init_dictionary(X, n_atoms, atom_support, seed=None):
-    rng = check_random_state(seed)
+def init_dictionary(X, n_atoms, atom_support, random_state=None):
+    rng = check_random_state(random_state)
 
     n_channels, *sig_shape = X.shape
     valid_shape = get_valid_shape(sig_shape, atom_support)
