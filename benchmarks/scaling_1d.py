@@ -131,7 +131,7 @@ def plot_scaling_1d_benchmark():
         ax_scaling = fig_scaling.subplots()
         handles = []
         xticks.append(((i + .5) * (n_bar + 1)) * width)
-        labels.append(f"$T = {n_times}$")
+        labels.append(f"$T = {n_times}L$")
         for j, (strategy, name, style) in enumerate(zip(strategies, names,
                                                     styles)):
             col_name = ['pb', 'n_jobs', 'runtime', 'runtime1']
@@ -141,6 +141,7 @@ def plot_scaling_1d_benchmark():
             try:
                 df = pandas.read_csv(csv_name, names=col_name)
             except FileNotFoundError:
+                print(f"Not found {csv_name}")
                 continue
 
             runtimes_1 = df[df['n_jobs'] == 1]['runtime'].values
@@ -150,7 +151,7 @@ def plot_scaling_1d_benchmark():
             handles.append(ax_bar.bar(position, height=np.mean(runtimes_1),
                                       width=width, color=COLOR[j], label=name,
                                       hatch='//' if strategy == 'lgcd' else '')
-                                      )
+                           )
 
             ax_bar.plot(
                 np.ones_like(runtimes_1) * position,
@@ -193,7 +194,7 @@ def plot_scaling_1d_benchmark():
             y_lim = (.5, 1e3)
         else:
             y_lim = (2, 2e4)
-        ax_scaling.vlines(n_times / 3, *y_lim, 'g', '-.')
+        ax_scaling.vlines(n_times / 4, *y_lim, 'g', '-.')
         ax_scaling.set_ylim(y_lim)
         ax_scaling.set_xscale('log')
         ax_scaling.set_yscale('log')

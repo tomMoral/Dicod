@@ -88,7 +88,7 @@ def plot_scaling_benchmark():
         plt.semilogx(curve[0], curve[1], label=name)
 
     ylim = (0, 250)
-    plt.vlines(21.3, *ylim, colors='g', linestyles='-.')
+    plt.vlines(512 / (8 * 4), *ylim, colors='g', linestyles='-.')
     plt.ylim(ylim)
     plt.legend(fontsize=14)
     # plt.xticks(n_jobs, n_jobs)
