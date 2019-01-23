@@ -13,6 +13,7 @@ __pycache__
 
 # Save experiences
 /save_exp
+/joblib
 
 # Development scripts
 /dev_scripts

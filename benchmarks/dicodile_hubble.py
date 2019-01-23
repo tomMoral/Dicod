@@ -19,10 +19,10 @@ def run_dicodile_hubble(size, reg, L):
     D_init = init_dictionary(
         X, n_atoms, (L, L), random_state=random_state)
 
-    dicod_kwargs = dict(tol=1e-1, soft_lock='border')
+    dicod_kwargs = dict(soft_lock='border')
     pobj, times, D_hat, z_hat = dicodile(
-        X, D_init, reg=reg, z_positive=True, n_iter=50, n_jobs=400,
-        eps=1e-4, verbose=2, dicod_kwargs=dicod_kwargs)
+        X, D_init, reg=reg, z_positive=True, n_iter=100, n_jobs=400,
+        eps=1e-5, tol=1e-3, verbose=2, dicod_kwargs=dicod_kwargs)
 
     # Save the atoms
     prefix = (f"K{n_atoms}_L{L}_reg{reg}"

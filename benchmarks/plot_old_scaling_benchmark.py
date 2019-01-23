@@ -1,116 +1,10 @@
-import os
 import pandas
-import datetime
 import numpy as np
-from joblib import Memory
 import matplotlib.pyplot as plt
-from collections import namedtuple
 
 
-from dicod import dicod
-from dicod.data import simulate_data
-from dicod.utils import check_random_state
-from dicod.utils.dictionary import get_lambda_max
-
-
-MAX_INT = 4294967295
 COLOR = ['C2', 'C1', 'C0']
 SAVE_DIR = "benchmarks_results"
-
-mem = Memory(location='.')
-
-
-ResultItem = namedtuple('ResultItem', [
-    'reg', 'n_jobs', 'strategy', 'tol', 'seed', 'pobj'])
-
-
-@mem.cache(ignore=['common_args'])
-def run_one(T, L, K, d, noise_level, seed_pb, n_jobs, reg, tol, strategy,
-            common_args):
-
-    X, D_hat = simulate_data(T, L, K, d, noise_level, seed=seed_pb)
-    lmbd_max = get_lambda_max(X, D_hat)
-    reg_ = reg * lmbd_max
-
-    n_seg = 1
-    strategy_ = strategy
-    if strategy == 'lgcd':
-        n_seg = 'auto'
-        strategy_ = "greedy"
-
-    *_, pobj, _ = dicod(X, D_hat, reg_, n_jobs=n_jobs, tol=tol,
-                        strategy=strategy_, n_seg=n_seg, **common_args)
-    print(pobj)
-
-    return ResultItem(reg=reg, n_jobs=n_jobs, strategy=strategy, tol=tol,
-                      seed=seed_pb, pobj=pobj)
-
-
-def run_scaling_1d_benchmark(strategies, T, list_reg=[1e-3], list_tol=[1e-3],
-                             list_seeds=range(5), max_jobs=75, timeout=7200):
-    '''Run DICOD strategy for a certain problem with different value
-    for n_jobs and store the runtime in csv files if given a save_dir.
-
-    Parameters
-    ----------
-    strategies: list of str in { 'greedy', 'lgcd', 'random' }
-        Algorithm to run the benchmark for
-    T: int
-        Size of the generated problems
-    list_reg: list of float
-        Regularization parameter of the considered problem
-    list_tol: list of float
-        Tolerance parameter used in DICOD.
-    list_seed: list of int
-       List of seed for the generated problems
-    max_jobs: int, optional (default: 75)
-        The strategy will be run on problems with a number
-        of cores varying from 1 to max_jobs in a log2 scale
-    timeout: int, optional (default: 7200)
-        maximal running time for DICOD. The default timeout
-        is 2 hours
-    '''
-
-    L = 150
-    K = 10
-    d = 7
-    noise_level = 1
-
-    file_name = os.path.join(SAVE_DIR, "runtimes_scaling_1d.csv")
-    if not os.path.exists(file_name):
-        with open(file_name, "w") as f:
-            f.write("T, reg, tol, seed_pb, strategy, n_jobs, runtime\n")
-
-    common_args = dict(timing=False, timeout=timeout, max_iter=int(5e8),
-                       verbose=2)
-
-    n_jobs = np.logspace(0, np.log2(max_jobs), 10, base=2)
-    n_jobs = [int(round(nj)) for nj in n_jobs if nj <= max_jobs]
-    n_jobs = np.unique(n_jobs)
-    n_jobs = n_jobs[::-1]
-
-    results = []
-
-    for j, seed_pb in enumerate(list_seeds):
-        for nj in n_jobs:
-            for reg in list_reg:
-                for tol in list_tol:
-                    for strategy, *_ in strategies:
-                        res = run_one(T, L, K, d, noise_level, seed_pb, nj,
-                                      reg, tol, strategy, common_args)
-                        runtime = res.pobj[-1][1]
-                        print('=' * 79)
-                        print('[{}] PB{}: End process with {} jobs  in {:.2f}s'
-                              .format(datetime.datetime.now()
-                                      .strftime("%I:%M"), j, nj, runtime))
-                        print('\n' + '=' * 79)
-                        results.append(res)
-                        with open(file_name, 'a') as f:
-                            f.write(
-                                f"{T}, {reg}, {tol}, {seed_pb}, {strategy}, "
-                                f"{nj}, {runtime}\n")
-    results = pandas.DataFrame(results)
-    results.to_pickle("benchmarks_results/scaling_1d.pkl")
 
 
 def plot_scaling_1d_benchmark(strategies, list_n_times):
@@ -220,37 +114,11 @@ def plot_scaling_1d_benchmark(strategies, list_n_times):
 
 
 if __name__ == "__main__":
-    import argparse
-    parser = argparse.ArgumentParser('')
-    parser.add_argument('--plot', action="store_true",
-                        help='Plot the results of the benchmarl')
-    parser.add_argument('--n-rep', type=int, default=5,
-                        help='Number of repetition to average to compute the '
-                        'average running time.')
-    args = parser.parse_args()
 
-    seed = 422742
-    rng = check_random_state(seed)
-
+    list_n_times = [150, 750]
     strategies = [
         ('greedy', 'Greedy', 's-'),
         ('random', 'Random', "h-"),
         ('lgcd', "LGCD", 'o-')
     ]
-
-    if args.plot:
-        list_n_times = [150, 750]
-        strategies = [
-            ('greedy', 'Greedy', 's-'),
-            ('random', 'Random', "h-"),
-            ('lgcd', "LGCD", 'o-')
-        ]
-        plot_scaling_1d_benchmark(strategies, list_n_times)
-    else:
-
-        strategies = [
-            ('greedy', 'Greedy', 's-'),
-            ('lgcd', "LGCD", 'o-')
-        ]
-        list_seeds = [rng.randint(MAX_INT) for _ in range(args.n_rep)]
-        run_scaling_1d_benchmark(strategies, T=151)
+    plot_scaling_1d_benchmark(strategies, list_n_times)
