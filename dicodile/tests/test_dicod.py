@@ -2,12 +2,12 @@ import pytest
 import numpy as np
 
 
-from dicod import dicod
-from dicod.utils import check_random_state
-from dicod.coordinate_descent import _init_beta
-from dicod.utils.csc import compute_ztz, compute_ztX
-from dicod.utils.shape_helpers import get_full_shape
-from dicod.utils.csc import reconstruct, compute_objective
+from dicodile import dicod
+from dicodile.utils import check_random_state
+from dicodile.coordinate_descent import _init_beta
+from dicodile.utils.csc import compute_ztz, compute_ztX
+from dicodile.utils.shape_helpers import get_full_shape
+from dicodile.utils.csc import reconstruct, compute_objective
 
 VERBOSE = 100
 N_WORKERS = 4

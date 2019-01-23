@@ -2,9 +2,9 @@ import pytest
 import numpy as np
 from scipy.signal import fftconvolve
 
-from dicod.utils.csc import reconstruct
-from dicod.utils.csc import compute_ztz
-from dicod.utils import check_random_state
+from dicodile.utils.csc import reconstruct
+from dicodile.utils.csc import compute_ztz
+from dicodile.utils import check_random_state
 
 
 @pytest.mark.parametrize('valid_shape, atom_shape', [((500,), (30,)),

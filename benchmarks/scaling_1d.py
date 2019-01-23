@@ -7,10 +7,10 @@ import matplotlib.pyplot as plt
 from collections import namedtuple
 
 
-from dicod import dicod
-from dicod.data import simulate_data
-from dicod.utils import check_random_state
-from dicod.utils.dictionary import get_lambda_max
+from dicodile import dicod
+from dicodile.data import simulate_data
+from dicodile.utils import check_random_state
+from dicodile.utils.dictionary import get_lambda_max
 
 
 MAX_INT = 4294967295

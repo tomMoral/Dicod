@@ -4,11 +4,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import namedtuple
 
-from dicod.data import get_hubble
-from dicod.dicodile import dicodile
-from dicod.utils.viz import median_curve
-from dicod.utils.dictionary import get_lambda_max
-from dicod.utils.dictionary import init_dictionary
+from dicodile.data import get_hubble
+from dicodile.dicodile import dicodile
+from dicodile.utils.viz import median_curve
+from dicodile.utils.dictionary import get_lambda_max
+from dicodile.utils.dictionary import init_dictionary
 
 from benchmarks.other.sporco.dictlrn.prlcnscdl import \
     ConvBPDNDictLearn_Consensus

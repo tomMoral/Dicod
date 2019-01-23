@@ -5,13 +5,13 @@ import matplotlib.pyplot as plt
 from joblib import Memory
 
 
-from dicod import dicod
-from dicod.data import get_mandril
-from dicod.utils.segmentation import Segmentation
-from dicod.utils.dictionary import get_lambda_max
-from dicod.utils.dictionary import init_dictionary
-from dicod.utils.shape_helpers import get_valid_shape
-from dicod.utils.csc import compute_objective, reconstruct
+from dicodile import dicod
+from dicodile.data import get_mandril
+from dicodile.utils.segmentation import Segmentation
+from dicodile.utils.dictionary import get_lambda_max
+from dicodile.utils.dictionary import init_dictionary
+from dicodile.utils.shape_helpers import get_valid_shape
+from dicodile.utils.csc import compute_objective, reconstruct
 
 mem = Memory(location='.')
 

@@ -2,10 +2,10 @@
 
 Author : tommoral <thomas.moreau@inria.fr>
 """
-from dicod.utils import constants
-from dicod.workers.dicod_worker import DICODWorker
-from dicod.workers.dicodile_worker import dicodile_worker
-from dicod.utils.mpi import wait_message, sync_workers
+from dicodile.utils import constants
+from dicodile.workers.dicod_worker import DICODWorker
+from dicodile.workers.dicodile_worker import dicodile_worker
+from dicodile.utils.mpi import wait_message, sync_workers
 
 
 def main():

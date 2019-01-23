@@ -2,11 +2,11 @@
 import numpy as np
 from scipy import sparse
 
-from dicod.data import get_hubble
-from dicod.dicodile import dicodile
-from dicod.utils.viz import plot_atom_and_coefs
+from dicodile.data import get_hubble
+from dicodile.dicodile import dicodile
+from dicodile.utils.viz import plot_atom_and_coefs
 
-from dicod.utils.dictionary import init_dictionary
+from dicodile.utils.dictionary import init_dictionary
 
 
 n_atoms = 25

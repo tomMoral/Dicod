@@ -3,11 +3,11 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import namedtuple
 
-from dicod import dicod
-from dicod.data import get_mandril
-from dicod.utils import check_random_state
-from dicod.utils.dictionary import get_lambda_max
-from dicod.utils.shape_helpers import get_valid_shape
+from dicodile import dicod
+from dicodile.data import get_mandril
+from dicodile.utils import check_random_state
+from dicodile.utils.dictionary import get_lambda_max
+from dicodile.utils.shape_helpers import get_valid_shape
 
 
 from joblib import Memory

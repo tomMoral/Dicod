@@ -1,6 +1,6 @@
-from dicod.utils import constants
-from dicod.workers.dicod_worker import DICODWorker
-from dicod.utils.mpi import wait_message
+from dicodile.utils import constants
+from dicodile.workers.dicod_worker import DICODWorker
+from dicodile.utils.mpi import wait_message
 
 
 def dicodile_worker():

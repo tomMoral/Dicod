@@ -1,7 +1,7 @@
 import pytest
 import numpy as np
 
-from dicod.utils.segmentation import Segmentation
+from dicodile.utils.segmentation import Segmentation
 
 
 def test_segmentation_coverage():

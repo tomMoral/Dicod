@@ -3,10 +3,10 @@ import numpy as np
 import matplotlib.pyplot as plt
 from collections import namedtuple
 
-from dicod import dicod
-from dicod.data import get_mandril
-from dicod.utils.dictionary import get_lambda_max
-from dicod.utils.dictionary import init_dictionary
+from dicodile import dicod
+from dicodile.data import get_mandril
+from dicodile.utils.dictionary import get_lambda_max
+from dicodile.utils.dictionary import init_dictionary
 
 
 from joblib import Memory
