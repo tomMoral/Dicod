@@ -75,6 +75,7 @@ def plot_scaling_benchmark():
     df = pandas.read_pickle("benchmarks_results/scaling_grid.pkl")
 
     fig = plt.figure(figsize=(6, 3))
+    fig.patch.set_alpha(0)
     for name, use_grid in [("Linear Split", False),
                            ("Grid Split", True)]:
         curve = []

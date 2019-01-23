@@ -111,6 +111,7 @@ def plot_results():
     df = pandas.read_pickle("benchmarks_results/compare_cdl.pkl")
 
     fig = plt.figure("compare_cdl", figsize=(6, 3))
+    fig.patch.set_alpha(0)
     tt, tt_w = [], []
     pp, pp_w = [], []
     for i in range(5):

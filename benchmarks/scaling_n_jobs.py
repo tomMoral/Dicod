@@ -104,6 +104,8 @@ def plot_scaling_benchmark():
     handles_lmbd = {}
     handles_strat = {}
     fig = plt.figure(figsize=(6, 3))
+    fig.patch.set_alpha(0)
+
     ax = plt.subplot()
 
     colors = ['C0', 'C1', 'C2']

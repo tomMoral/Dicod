@@ -13,6 +13,7 @@ def plot_atom_and_coefs(D_hat, z_hat, prefix):
     n_cols = 5
     n_rows = int(np.ceil(n_atoms / n_cols))
     fig = plt.figure(figsize=(3*n_cols + 2, 3*n_rows + 2))
+    fig.patch.set_alpha(0)
     for i in range(n_rows):
         for j in range(n_cols):
             if n_cols * i + j >= n_atoms:
@@ -30,6 +31,7 @@ def plot_atom_and_coefs(D_hat, z_hat, prefix):
                 bbox_inches='tight', pad_inches=0)
 
     fig = plt.figure()
+    fig.patch.set_alpha(0)
     plt.imshow(z_hat.sum(axis=0).T > 0, cmap='gray')
     plt.axis('off')
     fig.tight_layout()
@@ -37,6 +39,7 @@ def plot_atom_and_coefs(D_hat, z_hat, prefix):
                 bbox_inches='tight', pad_inches=0)
 
     fig = plt.figure()
+    fig.patch.set_alpha(0)
     X_hat = np.clip(reconstruct(z_hat, D_hat), 0, 1)
     plt.imshow(X_hat.swapaxes(0, 2))
     plt.axis('off')

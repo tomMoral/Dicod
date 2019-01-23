@@ -1,5 +1,3 @@
-#!/scratch/thmoreau/miniconda3/bin/python
-import os
 import numpy as np
 import matplotlib.pyplot as plt
 from joblib import Memory
@@ -60,6 +58,9 @@ if __name__ == "__main__":
     else:
         X_hat, pobj = run_without_soft_lock(*run_args)
 
+    file_name = f"soft_lock_M{n_jobs}_support{atom_support[0]}"
+    np.save(f"benchmarks_results/{file_name}_X_hat.npy", X_hat)
+
     # Compute the worker segmentation for the image,
     n_channels, *sig_shape = X_hat.shape
     valid_shape = get_valid_shape(sig_shape, atom_support)
@@ -68,6 +69,7 @@ if __name__ == "__main__":
                                     overlap=0)
 
     fig = plt.figure("recovery")
+    fig.patch.set_alpha(0)
 
     ax = plt.subplot()
     ax.imshow(X_hat.swapaxes(0, 2))
@@ -79,7 +81,6 @@ if __name__ == "__main__":
     ax.axis('off')
     plt.tight_layout()
 
-    fig.savefig(f"benchmarks_results/soft_lock_M{n_jobs}_"
-                f"support{atom_support[0]}.pdf", dpi=300,
+    fig.savefig(f"benchmarks_results/{file_name}.pdf", dpi=300,
                 bbox_inches='tight', pad_inches=0)
     print("done")

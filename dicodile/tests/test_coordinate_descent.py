@@ -42,7 +42,7 @@ def test_init_beta():
         c0 = compute_objective(X, z, D, lmbd)
 
         eps = 1e-5
-        z[k, h, w] -= 2.1 * eps
+        z[k, h, w] -= 3.5 * eps
         for _ in range(5):
             z[k, h, w] += eps
             assert c0 <= compute_objective(X, z, D, lmbd)

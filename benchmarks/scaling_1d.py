@@ -121,10 +121,12 @@ def plot_scaling_1d_benchmark(strategies, list_n_times):
     width = 1 / ((n_bar + 1) * n_group - 1)
 
     fig = plt.figure('comparison CD', figsize=(6, 3.5))
+    fig.patch.set_alpha(0)
     ax_bar = fig.subplots()
     xticks, labels = [], []
     for i, n_times in enumerate(list_n_times):
         fig_scaling = plt.figure(f'Scaling T={n_times}', figsize=(6, 3))
+        fig_scaling.patch.set_alpha(0)
         ax_scaling = fig_scaling.subplots()
         handles = []
         xticks.append(((i + .5) * (n_bar + 1)) * width)

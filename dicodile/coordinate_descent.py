@@ -233,7 +233,7 @@ def _init_beta(X_i, D, reg, z_i=None, constants={}, z_positive=False,
         assert z_i.shape == beta.shape
         for k, *pt in zip(*z_i.nonzero()):
             pt = tuple(pt)
-            beta[k][pt] -= z_i[k][pt] * norm_atoms[k]
+            beta[(k, *pt)] -= z_i[(k, *pt)] * norm_atoms[k]
 
     dz_opt = soft_thresholding(-beta, reg, positive=z_positive) / norm_atoms
 
