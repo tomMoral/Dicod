@@ -1,3 +1,0 @@
-cd dicod/c_dicod/
-make $1
-cd ../..
