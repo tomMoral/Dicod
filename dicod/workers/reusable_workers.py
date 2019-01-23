@@ -83,7 +83,8 @@ def _spawn_workers(n_jobs, hostfile=None):
     for key in ['TESTING_DICOD']:
         if key in os.environ:
             envstr += f"{key}={os.environ[key]}\n"
-    info.Set("env", envstr)
+    if envstr != '':
+        info.Set("env", envstr)
 
     # Spawn the workers
     script_name = os.path.join(os.path.dirname(__file__),

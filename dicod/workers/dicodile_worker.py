@@ -21,4 +21,6 @@ def dicodile_worker():
             dicod.return_z_nnz()
         if tag == constants.TAG_DICODILE_GET_SUFFICIENT_STAT:
             dicod.return_sufficient_statistics()
+        if tag == constants.TAG_DICODILE_UPDATE_PARAMS:
+            dicod.get_params()
         tag = wait_message()

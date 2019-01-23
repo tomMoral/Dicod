@@ -2,6 +2,7 @@
 
 import numpy as np
 from scipy import signal
+from joblib import Parallel, delayed, parallel_backend
 
 from ..utils.shape_helpers import get_valid_shape
 
@@ -96,6 +97,8 @@ def _l2_objective(D=None, constants=None):
     return cost
 
 
+
+
 def tensordot_convolve(ztz, D):
     """Compute the multivariate (valid) convolution of ztz and D
 
@@ -128,11 +131,11 @@ def tensordot_convolve(ztz, D):
                                               axes=([1] + axis_sum,
                                                     [0] + axis_sum))
     else:
-        if len(atom_support) == 1:
+        if D.ndim == 3:
             convolution_op = np.convolve
         else:
             convolution_op = signal.fftconvolve
         G = np.sum([[[convolution_op(ztz_kk, D_kp, mode='valid')
-                     for D_kp in D_k] for ztz_kk, D_k in zip(ztz_k, D)]
+                    for D_kp in D_k] for ztz_kk, D_k in zip(ztz_k, D)]
                    for ztz_k in ztz], axis=1)
     return G

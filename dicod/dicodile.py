@@ -3,9 +3,12 @@ import sys
 import time
 import numpy as np
 
+from mpi4py import MPI
+
 
 from .utils import constants
-from .update_d import update_d
+from .utils.csc import compute_objective
+from .update_d.update_d import update_d
 from .utils.segmentation import Segmentation
 from .utils.dictionary import get_lambda_max
 from .utils.dictionary import get_max_error_dict
@@ -21,17 +24,18 @@ DEFAULT_DICOD_KWARGS = dict(max_iter=int(1e8), timeout=None)
 
 
 def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
-             n_seg='auto', tol=1e-1, dicod_kwargs=DEFAULT_DICOD_KWARGS,
-             w_world='auto', n_jobs=4, hostfile=None, stopping_pobj=None,
-             eps=1e-5, raise_on_increase=True, random_state=None,
-             name="DICODILE", verbose=0):
+             n_seg='auto', tol=1e-1, dicod_kwargs={}, stopping_pobj=None,
+             w_world='auto', n_jobs=4, hostfile=None, eps=1e-5,
+             raise_on_increase=True, random_state=None, name="DICODILE",
+             verbose=0):
 
     lmbd_max = get_lambda_max(X, D_hat).max()
     if verbose > 5:
         print("[DICODILE:DEBUG] Lambda_max = {}".format(lmbd_max))
     reg_ = reg * lmbd_max
 
-    params = dicod_kwargs.copy()
+    params = DEFAULT_DICOD_KWARGS.copy()
+    params.update(dicod_kwargs)
     params.update(dict(
         strategy=strategy, n_seg=n_seg, z_positive=z_positive, tol=tol,
         random_state=random_state, reg=reg_, verbose=verbose, timing=False,
@@ -82,6 +86,7 @@ def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
     t_start = time.time()
     times = [0]
     pobj = [compute_cost(comm)]
+    tol_, step_size = .2, 1e-4
 
     for ii in range(n_iter):  # outer loop of coordinate descent
         if verbose == 1:
@@ -89,11 +94,17 @@ def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
             print(msg, end='')
             sys.stdout.flush()
         if verbose > 1:
-            print('[{}:INFO] {:.0f}s - CD iterations {} / {}'
-                  .format(name, time.time() - t_start, ii, n_iter))
+            print('[{}:INFO] - CD iterations {} / {} ({:.0f}s)'
+                  .format(name, ii, n_iter, time.time() - t_start))
+
+        tol_ /= 2
+        if tol >= tol_:
+            tol_ = tol
+        params['tol'] = tol_
+        update_worker_params(comm, params)
 
         if verbose > 5:
-            print('[{}:DEBUG] lambda = {:.3e}'.format(name, np.mean(reg_)))
+            print('[{}:DEBUG] lambda = {:.3e}'.format(name, reg_))
 
         # Compute z update
         t_start_update_z = time.time()
@@ -106,10 +117,11 @@ def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
         pobj.append(compute_cost(comm))
 
         z_nnz = get_z_nnz(comm, n_atoms)
-        if verbose > 5:
+        if verbose > 5 or True:
             print("[{}:DEBUG] sparsity: {:.3e}".format(
                 name, z_nnz.sum() / z_size))
-            print('[{}:DEBUG] Objective (z) : {:.3e}'.format(name, pobj[-1]))
+            print('[{}:DEBUG] Objective (z) : {:.3e} ({:.0f}s)'
+                  .format(name, pobj[-1], times[-1]))
 
         if np.all(z_nnz == 0):
             import warnings
@@ -120,7 +132,10 @@ def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
 
         # Compute D update
         t_start_update_d = time.time()
-        D_hat = update_d(X, None, D_hat, constants, verbose=verbose)
+        step_size *= 100
+        D_hat, step_size = update_d(X, None, D_hat, constants=constants,
+                                    step_size=step_size, max_iter=5,
+                                    eps=1, verbose=verbose, momentum=True)
         update_worker_D(comm, D_hat)
         # monitor cost function
         times.append(time.time() - t_start_update_d)
@@ -130,13 +145,13 @@ def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
         if len(null_atom_indices) > 0:
             k0 = null_atom_indices[0]
             z_hat = get_z_hat(comm, n_atoms, workers_segments)
-            D_hat[k0] = get_max_error_dict(X[None], z_hat[None], D_hat,
-                                           window=False)[0]
+            D_hat[k0] = get_max_error_dict(X, z_hat, D_hat)[0]
             if verbose > 1:
                 print('[{}:INFO] Resampled atom {}'.format(name, k0))
 
-        if verbose > 5:
-            print('[{}:DEBUG] Objective (d) : {:.3e}'.format(name, pobj[-1]))
+        if verbose > 5 or True:
+            print('[{}:DEBUG] Objective (d) : {:.3e}  ({:.0f}s)'
+                  .format(name, pobj[-1], times[-1]))
 
         # Only check that the cost is always going down when the regularization
         # parameter is fixed.
@@ -171,6 +186,14 @@ def dicodile(X, D_hat, reg=.1, z_positive=True, n_iter=100, strategy='greedy',
     return pobj, times, D_hat, z_hat
 
 
+def check_cost(comm, n_atoms, workers_segments, X, D_hat, reg):
+    cost = compute_cost(comm)
+    z_hat = get_z_hat(comm, n_atoms, workers_segments)
+    cost_2 = compute_objective(X, z_hat, D_hat, reg)
+    assert np.isclose(cost, cost_2), (cost, cost_2)
+    print("check cost ok", cost, cost_2)
+
+
 def _request_workers(n_jobs, hostfile):
     comm = get_reusable_workers(n_jobs, hostfile=hostfile)
     send_command_to_reusable_workers(constants.TAG_WORKER_RUN_DICODILE)
@@ -184,6 +207,11 @@ def _release_workers():
 def update_worker_D(comm, D):
     send_command_to_reusable_workers(constants.TAG_DICODILE_UPDATE_D)
     broadcast_array(comm, D)
+
+
+def update_worker_params(comm, params):
+    send_command_to_reusable_workers(constants.TAG_DICODILE_UPDATE_PARAMS)
+    comm.bcast(params, root=MPI.ROOT)
 
 
 def update_z(comm, n_jobs, verbose=0):

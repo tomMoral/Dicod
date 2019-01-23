@@ -43,3 +43,31 @@ def plot_atom_and_coefs(D_hat, z_hat, prefix):
     fig.tight_layout()
     fig.savefig(f"hubble/{prefix}X_hat.pdf", dpi=1200,
                 bbox_inches='tight', pad_inches=0)
+
+
+def median_curve(times, pobj):
+    """Compute the Median curve, given a list of curves and their timing.
+
+    times : list of list
+        Time point associated to pobj
+    pobj : list of list
+        Value of the cost function at a given time.
+    """
+    T = np.max([np.max(tt) for tt in times])
+    # t = np.linspace(0, T, 100)
+    t = np.logspace(-1, np.log10(T), 100)
+    curves = []
+    for lt, lf in zip(times, pobj):
+        curve = []
+        for tt in t:
+            i0 = np.argmax(lt > tt)
+            if i0 == 0 and tt != 0:
+                value = lf[-1]
+            elif i0 == 0 and tt == 0:
+                value = lf[0]
+            else:
+                value = (lf[i0] - lf[i0-1]) / (lt[i0] - lt[i0-1]) * (
+                    tt - lt[i0-1]) + lf[i0-1]
+            curve.append(value)
+        curves.append(curve)
+    return t, np.median(curves, axis=0)

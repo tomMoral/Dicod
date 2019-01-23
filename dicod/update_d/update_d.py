@@ -23,8 +23,8 @@ def prox_d(D, step_size=0, return_norm=False):
         return D
 
 
-def update_d(X, z, D_hat0, constants=None, max_iter=300, eps=None,
-             momentum=False, verbose=0):
+def update_d(X, z, D_hat0, constants=None, step_size=None, max_iter=300,
+             eps=None, momentum=False, verbose=0):
     """Learn d's in time domain.
 
     Parameters
@@ -64,13 +64,12 @@ def update_d(X, z, D_hat0, constants=None, max_iter=300, eps=None,
         D = prox_d(D)
         return D
 
-    step_size = None
     adaptive_step_size = True
 
-    D_hat, pobj = fista(
+    D_hat, pobj, step_size = fista(
         objective, grad, prox, x0=D_hat0, max_iter=max_iter,
         step_size=step_size, adaptive_step_size=adaptive_step_size,
-        eps=eps, momentum=momentum, verbose=verbose,
+        eps=eps, momentum=momentum, verbose=verbose, scipy_line_search=True,
         name="Update D")
 
-    return D_hat
+    return D_hat, step_size

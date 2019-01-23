@@ -99,5 +99,5 @@ def reconstruct(z_hat, D):
 
 
 def compute_objective(X, z_hat, D, reg):
-    res = X - reconstruct(z_hat, D)
-    return 0.5 * np.sum(res ** 2) + reg * abs(z_hat).sum()
+    res = (X - reconstruct(z_hat, D)).ravel()
+    return 0.5 * np.dot(res, res) + reg * abs(z_hat).sum()

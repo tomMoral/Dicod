@@ -1,29 +1,24 @@
 import numpy as np
 from scipy import signal
 
+from .csc import reconstruct
 from . import check_random_state
 from .shape_helpers import get_valid_shape
 
 
-def get_max_error_dict(X, z, D, uv_constraint='separate', window=False):
+def get_max_error_dict(X, z, D):
     """Get the maximal reconstruction error patch from the data as a new atom
 
     This idea is used for instance in [Yellin2017]
 
     Parameters
     ----------
-    X: array, shape (n_trials, n_channels, n_times)
+    X: array, shape (n_channels, *sig_shape)
         Signals encoded in the CSC.
-    z: array, shape (n_atoms, n_trials, n_times_valid)
+    z: array, shape (n_atoms, *valid_shape)
         Current estimate of the coding signals.
-    D: array, shape (n_atoms, n_channels + n_times_atom)
-        Current estimate of the rank1 multivariate dictionary.
-    uv_constraint : str in {'joint' | 'separate'}
-        The kind of norm constraint on the atoms:
-        If 'joint', the constraint is norm_2([u, v]) <= 1
-        If 'separate', the constraint is norm_2(u) <= 1 and norm_2(v) <= 1
-    window : boolean
-        If True, multiply the atoms with a temporal Tukey window.
+    D: array, shape (n_atoms, *atom_support)
+        Current estimate of the dictionary.
 
     Return
     ------
@@ -34,14 +29,12 @@ def get_max_error_dict(X, z, D, uv_constraint='separate', window=False):
     [Yellin2017] BLOOD CELL DETECTION AND COUNTING IN HOLOGRAPHIC LENS-FREE
     IMAGING BY CONVOLUTIONAL SPARSE DICTIONARY LEARNING AND CODING.
     """
-    n_trials, n_channels, *sig_shape = X.shape
     atom_support = D.shape[2:]
-    valid_shape = get_valid_shape(sig_shape, atom_support)
     patch_rec_error = _patch_reconstruction_error(X, z, D)
     i0 = patch_rec_error.argmax()
-    n0, *pt0 = np.unravel_index(i0, (n_trials, *valid_shape))
+    pt0 = np.unravel_index(i0, patch_rec_error.shape)
 
-    d0_slice = tuple([slice(n0, n0 + 1), slice(None)] + [
+    d0_slice = tuple([slice(None)] + [
         slice(v, v + size_ax) for v, size_ax in zip(pt0, atom_support)
     ])
     d0 = X[d0_slice]
@@ -62,8 +55,7 @@ def _patch_reconstruction_error(X, z, D):
     n_trials, n_channels, *sig_shape = X.shape
     atom_support = D.shape[2:]
 
-    from .convolution import construct_X_multi
-    X_hat = construct_X_multi(z, D, n_channels=n_channels)
+    X_hat = reconstruct(z, D)
 
     diff = (X - X_hat)
     diff *= diff
@@ -74,9 +66,8 @@ def _patch_reconstruction_error(X, z, D):
     else:
         convolution_op = signal.convolve
 
-    return np.sum([[convolution_op(patch, diff_ip, mode='valid')
-                    for diff_ip in diff_i]
-                   for diff_i in diff], axis=1)
+    return np.sum([convolution_op(patch, diff_p, mode='valid')
+                   for diff_p in diff], axis=0)
 
 
 def get_lambda_max(X, D_hat):

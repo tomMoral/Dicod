@@ -74,8 +74,8 @@ def fista(f_obj, f_grad, f_prox, step_size, x0, max_iter, verbose=0,
     for ii in range(max_iter):
         t_update = time.time()
         if verbose > 1 and t_update - last_up > 1:
-            print("\r[FISTA:PROGRESS] {:.0f}s - {:7.2%} iterations"
-                  .format(t_update - t_start, ii / max_iter),
+            print("\r[{}:PROGRESS] {:.0f}s - {:7.2%} iterations ({:.3e})"
+                  .format(name, t_update - t_start, ii / max_iter, step_size),
                   end="", flush=True)
         has_restarted = False
 
@@ -113,7 +113,7 @@ def fista(f_obj, f_grad, f_prox, step_size, x0, max_iter, verbose=0,
                 # the momentum for APGD or stop the algorithm for PDG.
                 x_hat_aux = x_hat
                 has_restarted = momentum
-                step_size = 1.
+                step_size = 1e-3
 
         else:
             x_hat_aux -= step_size * grad
@@ -147,7 +147,7 @@ def fista(f_obj, f_grad, f_prox, step_size, x0, max_iter, verbose=0,
 
     if timing:
         return x_hat, pobj, times
-    return x_hat, pobj
+    return x_hat, pobj, step_size
 
 
 def _adaptive_step_size(f, f0=None, alpha=None, tau=2):
@@ -170,19 +170,16 @@ def _adaptive_step_size(f, f0=None, alpha=None, tau=2):
     if f0 is None:
         f0, _ = f(0)
     f_alpha, x_alpha = f(alpha)
-    f_alpha_down, x_alpha_down = f(alpha / tau)
-    f_alpha_up, x_alpha_up = f(alpha * tau)
-
-    alphas = [0, alpha / tau, alpha, alpha * tau]
-    fs = [f0, f_alpha_down, f_alpha, f_alpha_up]
-    xs = [None, x_alpha_down, x_alpha, x_alpha_up]
-    i = np.argmin(fs)
-    if i == 0:
-        alpha /= tau * tau
+    if f_alpha < f0:
+        f_alpha_up, x_alpha_up = f(alpha * tau)
+        if f_alpha_up < f0:
+            return f_alpha_up, x_alpha_up, alpha * tau
+        else:
+            return f_alpha, x_alpha, alpha
+    else:
+        alpha /= tau
         f_alpha, x_alpha = f(alpha)
         while f0 <= f_alpha and alpha > MIN_STEP_SIZE:
             alpha /= tau
             f_alpha, x_alpha = f(alpha)
         return f_alpha, x_alpha, alpha
-    else:
-        return fs[i], xs[i], alphas[i]

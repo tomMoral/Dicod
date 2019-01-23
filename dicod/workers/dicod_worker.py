@@ -38,20 +38,7 @@ class DICODWorker:
     def recv_task(self):
         # Retrieve different constants from the base communicator and store
         # then in the class.
-        self.rank, self.n_jobs, params = self.get_params()
-
-        self.tol = params['tol']
-        self.reg = params['reg']
-        self.n_seg = params['n_seg']
-        self.timing = params['timing']
-        self.timeout = params['timeout']
-        self.verbose = params['verbose']
-        self.strategy = params['strategy']
-        self.max_iter = params['max_iter']
-        self.soft_lock = params['soft_lock']
-        self.z_positive = params['z_positive']
-        self.return_ztz = params['return_ztz']
-        self.freeze_support = params['freeze_support']
+        params = self.get_params()
 
         if self.timeout:
             self.timeout *= 3
@@ -650,10 +637,26 @@ class DICODWorker:
     def get_params(self):
         """Receive the parameter of the algorithm from the master node."""
         if self._backend == "mpi":
-            return self._get_params_mpi()
+            self.rank, self.n_jobs, params = self._get_params_mpi()
         else:
             raise NotImplementedError("Backend {} is not implemented"
                                       .format(self._backend))
+
+        self.tol = params['tol']
+        self.reg = params['reg']
+        self.n_seg = params['n_seg']
+        self.timing = params['timing']
+        self.timeout = params['timeout']
+        self.verbose = params['verbose']
+        self.strategy = params['strategy']
+        self.max_iter = params['max_iter']
+        self.soft_lock = params['soft_lock']
+        self.z_positive = params['z_positive']
+        self.return_ztz = params['return_ztz']
+        self.freeze_support = params['freeze_support']
+
+        self.info("tol updated to {:.2e}", self.tol, global_msg=True)
+        return params
 
     def get_signal(self, X_shape, debug=False):
         """Receive the part of the signal to encode from the master node."""
