@@ -7,11 +7,11 @@ from collections import namedtuple
 from dicod.data import get_hubble
 from dicod.dicodile import dicodile
 from dicod.utils.viz import median_curve
-from dicod.utils import check_random_state
 from dicod.utils.dictionary import get_lambda_max
 from dicod.utils.dictionary import init_dictionary
 
-from sporco.dictlrn.prlcnscdl import ConvBPDNDictLearn_Consensus
+from benchmarks.other.sporco.dictlrn.prlcnscdl import \
+    ConvBPDNDictLearn_Consensus
 
 from joblib import Memory
 mem = Memory(location='.')
