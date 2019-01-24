@@ -66,6 +66,7 @@ def shutdown_reusable_workers():
         send_command_to_reusable_workers(constants.TAG_WORKER_STOP)
         _worker_comm.Barrier()
         _worker_comm.Disconnect()
+        _worker_comm.Free()
         _n_workers = None
         _worker_comm = None
 

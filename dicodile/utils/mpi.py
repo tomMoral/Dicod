@@ -63,6 +63,7 @@ def shutdown_mpi():
     comm = MPI.Comm.Get_parent()
     comm.Barrier()
     comm.Disconnect()
+    comm.Free()
 
 
 def sync_workers():
